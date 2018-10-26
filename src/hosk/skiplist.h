@@ -33,7 +33,6 @@ struct sl_node {
    val_t             val;
    sl_key_t          key;
    volatile uint     level;
-   bool              fresh;
 };
 
 /* index layer nodes */

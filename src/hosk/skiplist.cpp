@@ -42,7 +42,6 @@ node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next) {
    node->val   = val;
    node->prev  = prev;
    node->next  = next;
-   node->fresh = true;
    node->level = 0;
    return node;
 }

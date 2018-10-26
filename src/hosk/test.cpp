@@ -29,10 +29,8 @@
 #include <numa.h>
 #include <atomic_ops.h>
 #include "common.h"
-#include "tm.h"
 #include "skiplist.h"
-#include "queue.h"
-#include "search.h"
+#include "enclave.h"
 #include "allocator.h"
 
 #define DEFAULT_DURATION               10000
@@ -59,50 +57,9 @@
 #define VAL_MIN                        INT_MIN
 #define VAL_MAX                        INT_MAX
 
+int num_numa_zones = MAX_NUMA_ZONES;
+
 inline long rand_range(long r); /* declared in test.c */
-
-#include "intset.h"
-#include "background.h"
-
-VOLATILE AO_t stop;
-unsigned int global_seed;
-#ifdef TLS
-__thread unsigned int *rng_seed;
-#else /* ! TLS */
-pthread_key_t rng_seed_key;
-#endif /* ! TLS */
-unsigned int levelmax;
-
-typedef struct barrier {
-   pthread_cond_t complete;
-   pthread_mutex_t mutex;
-   int count;
-   int crossing;
-} barrier_t;
-
-void barrier_init(barrier_t *b, int n)
-{
-   pthread_cond_init(&b->complete, NULL);
-   pthread_mutex_init(&b->mutex, NULL);
-   b->count = n;
-   b->crossing = 0;
-}
-
-void barrier_cross(barrier_t *b)
-{
-   pthread_mutex_lock(&b->mutex);
-   /* One more thread through */
-   b->crossing++;
-   /* If not all here, wait */
-   if (b->crossing < b->count) {
-      pthread_cond_wait(&b->complete, &b->mutex);
-   } else {
-      pthread_cond_broadcast(&b->complete);
-      /* Reset for next time */
-      b->crossing = 0;
-   }
-   pthread_mutex_unlock(&b->mutex);
-}
 
 int floor_log_2(unsigned int n) {
    int pos = 0;
@@ -115,193 +72,131 @@ int floor_log_2(unsigned int n) {
 }
 
 /* NUMASK additions */
-int num_numa_zones;
 bool initial_populate;
-search_layer** search_layers;
+enclave** enclaves;
 extern numa_allocator** allocators;
 struct zone_init_args {
-   int      numa_zone;
+   int      cpu_num;
    node_t*  node_sentinel;
    unsigned allocator_size;
 };
 
 /* zone_init() - initializes the queue and search layer object for a NUMA zone   */
 void* zone_init(void* args) {
+   int buffer_size = 1000; // TODO: buffer size
    zone_init_args* zia = (zone_init_args*)args;
+   int numa_zone = zia->cpu_num % num_numa_zones;
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
-   CPU_SET(zia->numa_zone, &cpuset);
+   CPU_SET(zia->cpu_num, &cpuset);
    sleep(1);
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-   numa_set_preferred(zia->numa_zone);
-
-   numa_allocator* na = new numa_allocator(zia->allocator_size);
-   allocators[zia->numa_zone] = na;
-
-   mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, zia->numa_zone);
-   inode_t* inode = inode_new(NULL, NULL, mnode, zia->numa_zone);
-   search_layer* sl = new search_layer(zia->numa_zone, inode, new update_queue());
-   search_layers[zia->numa_zone] = sl;
-   free(zia);
+   numa_set_preferred(numa_zone);
+   if(allocators[numa_zone] == NULL) {
+      numa_allocator* na = new numa_allocator(zia->allocator_size);
+      allocators[numa_zone] = na;
+   }
+   mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, numa_zone);
+   inode_t* inode = inode_new(NULL, NULL, mnode, numa_zone);
+   enclave* en = new enclave(buffer_size, zia->cpu_num, numa_zone, inode);
+   enclaves[zia->cpu_num] = en;
    return NULL;
 }
-
-/*
- * Returns a pseudo-random value in [1;range).
- * Depending on the symbolic constant RAND_MAX>=32767 defined in stdlib.h,
- * the granularity of rand() could be lower-bounded by the 32767^th which might
- * be too high for given values of range and initial.
- *
- * Note: this is not thread-safe and will introduce futex locks
- */
-inline long rand_range(long r) {
-   int m = RAND_MAX;
-   int d, v = 0;
-
-   do {
-      d = (m > r ? r : m);
-      v += 1 + (int)(d * ((double)rand()/((double)(m)+1.0)));
-      r -= m;
-   } while (r > 0);
-   return v;
-}
-
-/* Thread-safe, re-entrant version of rand_range(r) */
-inline long rand_range_re(unsigned int *seed, long r) {
-   int m = RAND_MAX;
-   int d, v = 0;
-
-   do {
-      d = (m > r ? r : m);
-      v += 1 + (int)(d * ((double)rand_r(seed)/((double)(m)+1.0)));
-      r -= m;
-   } while (r > 0);
-   return v;
-}
-long rand_range_re(unsigned int *seed, long r);
-
-typedef struct thread_data {
-   unsigned int first;
-   long range;
-   int update;
-   int unit_tx;
-   int alternate;
-   int effective;
-   unsigned long nb_add;
-   unsigned long nb_added;
-   unsigned long nb_remove;
-   unsigned long nb_removed;
-   unsigned long nb_contains;
-   unsigned long nb_found;
-   unsigned long nb_aborts;
-   unsigned long nb_aborts_locked_read;
-   unsigned long nb_aborts_locked_write;
-   unsigned long nb_aborts_validate_read;
-   unsigned long nb_aborts_validate_write;
-   unsigned long nb_aborts_validate_commit;
-   unsigned long nb_aborts_invalid_memory;
-   unsigned long nb_aborts_double_write;
-   unsigned long max_retries;
-   unsigned int seed;
-   search_layer* sl;
-   barrier_t *barrier;
-   unsigned long failures_because_contention;
-} thread_data_t;
-
-void *test(void *data) {
-   int unext, last = -1;
-   unsigned int val = 0;
-   thread_data_t *d = (thread_data_t *)data;
-
-   // run test thread on correct NUMA zone
-   search_layer* sl = d->sl;
-   int cur_zone = sl->get_zone();
-   numa_run_on_node(cur_zone);
-
-   /* Create transaction */
-   TM_THREAD_ENTER();
-   /* Wait on barrier */
-   barrier_cross(d->barrier);
-
-   /* Is the first op an update? */
-   unext = (rand_range_re(&d->seed, 100) - 1 < d->update);
-
-#ifdef ICC
-   while (stop == 0) {
-#else
-   while (AO_load_full(&stop) == 0) {
-#endif
-      if (unext) { // update
-         if (last < 0) { // add
-            val = rand_range_re(&d->seed, d->range);
-            if (sl_add_old(sl, val, TRANSACTIONAL)) {
-               d->nb_added++;
-               last = val;
-            }
-            d->nb_add++;
-         } else { // remove
-            if (d->alternate) { // alternate mode (default)
-               if (sl_remove_old(sl, last, TRANSACTIONAL)) {
-                  d->nb_removed++;
-               }
-               last = -1;
-            } else {
-               /* Random computation only in non-alternated cases */
-               val = rand_range_re(&d->seed, d->range);
-               /* Remove one random value */
-               if (sl_remove_old(sl, val, TRANSACTIONAL)) {
-                  d->nb_removed++;
-                  /* Repeat until successful, to avoid size variations */
-                  last = -1;
-               }
-            }
-            d->nb_remove++;
-         }
-      } else { // read
-         if (d->alternate) {
-            if (d->update == 0) {
-               if (last < 0) {
-                  val = d->first;
-                  last = val;
-               } else { // last >= 0
-                  val = rand_range_re(&d->seed, d->range);
-                  last = -1;
-               }
-            } else { // update != 0
-               if (last < 0) {
-                  val = rand_range_re(&d->seed, d->range);
-                  //last = val;
-               } else {
-                  val = last;
-               }
-            }
-         } else {
-            val = rand_range_re(&d->seed, d->range);
-         }
-
-         if (sl_contains_old(sl, val, TRANSACTIONAL))
-            d->nb_found++;
-         d->nb_contains++;
-      }
-
-      /* Is the next op an update? */
-      if (d->effective) { // a failed remove/add is a read-only tx
-         unext = ((100 * (d->nb_added + d->nb_removed))
-                  < (d->update * (d->nb_add + d->nb_remove + d->nb_contains)));
-      } else { // remove/add (even failed) is considered as an update
-         unext = (rand_range_re(&d->seed, 100) - 1 < d->update);
-      }
-
-#ifdef ICC
-   }
-#else
-   }
-#endif /* ICC */
-
-   /* Free transaction */
-   TM_THREAD_EXIT();
-   return NULL;
-}
+//
+//void *test(void *data) {
+//   int unext, last = -1;
+//   unsigned int val = 0;
+//   thread_data_t *d = (thread_data_t *)data;
+//
+//   // run test thread on correct NUMA zone
+//   search_layer* sl = d->sl;
+//   int cur_zone = sl->get_zone();
+//   numa_run_on_node(cur_zone);
+//
+//   /* Create transaction */
+//   TM_THREAD_ENTER();
+//   /* Wait on barrier */
+//   barrier_cross(d->barrier);
+//
+//   /* Is the first op an update? */
+//   unext = (rand_range_re(&d->seed, 100) - 1 < d->update);
+//
+//#ifdef ICC
+//   while (stop == 0) {
+//#else
+//   while (AO_load_full(&stop) == 0) {
+//#endif
+//      if (unext) { // update
+//         if (last < 0) { // add
+//            val = rand_range_re(&d->seed, d->range);
+//            if (sl_add_old(sl, val, TRANSACTIONAL)) {
+//               d->nb_added++;
+//               last = val;
+//            }
+//            d->nb_add++;
+//         } else { // remove
+//            if (d->alternate) { // alternate mode (default)
+//               if (sl_remove_old(sl, last, TRANSACTIONAL)) {
+//                  d->nb_removed++;
+//               }
+//               last = -1;
+//            } else {
+//               /* Random computation only in non-alternated cases */
+//               val = rand_range_re(&d->seed, d->range);
+//               /* Remove one random value */
+//               if (sl_remove_old(sl, val, TRANSACTIONAL)) {
+//                  d->nb_removed++;
+//                  /* Repeat until successful, to avoid size variations */
+//                  last = -1;
+//               }
+//            }
+//            d->nb_remove++;
+//         }
+//      } else { // read
+//         if (d->alternate) {
+//            if (d->update == 0) {
+//               if (last < 0) {
+//                  val = d->first;
+//                  last = val;
+//               } else { // last >= 0
+//                  val = rand_range_re(&d->seed, d->range);
+//                  last = -1;
+//               }
+//            } else { // update != 0
+//               if (last < 0) {
+//                  val = rand_range_re(&d->seed, d->range);
+//                  //last = val;
+//               } else {
+//                  val = last;
+//               }
+//            }
+//         } else {
+//            val = rand_range_re(&d->seed, d->range);
+//         }
+//
+//         if (sl_contains_old(sl, val, TRANSACTIONAL))
+//            d->nb_found++;
+//         d->nb_contains++;
+//      }
+//
+//      /* Is the next op an update? */
+//      if (d->effective) { // a failed remove/add is a read-only tx
+//         unext = ((100 * (d->nb_added + d->nb_removed))
+//                  < (d->update * (d->nb_add + d->nb_remove + d->nb_contains)));
+//      } else { // remove/add (even failed) is considered as an update
+//         unext = (rand_range_re(&d->seed, 100) - 1 < d->update);
+//      }
+//
+//#ifdef ICC
+//   }
+//#else
+//   }
+//#endif /* ICC */
+//
+//   /* Free transaction */
+//   TM_THREAD_EXIT();
+//   return NULL;
+//}
 
 
 void catcher(int sig)
@@ -330,7 +225,7 @@ int main(int argc, char **argv)
    unsigned long reads, effreads, updates, effupds, aborts, aborts_locked_read, aborts_locked_write,
    aborts_validate_read, aborts_validate_write, aborts_validate_commit,
    aborts_invalid_memory, aborts_double_write, max_retries, failures_because_contention;
-   thread_data_t *data;
+//   thread_data_t *data;
    pthread_t *threads;
    pthread_attr_t attr;
    barrier_t barrier;
@@ -348,7 +243,6 @@ int main(int argc, char **argv)
    sigset_t block_set;
    struct sl_node *temp;
    int unbalanced = DEFAULT_UNBALANCED;
-   num_numa_zones = MAX_NUMA_ZONES;
    while(1) {
       i = 0;
       c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:x:U:z:P:", long_options, &i);
@@ -482,17 +376,17 @@ int main(int argc, char **argv)
    // create sentinel node on NUMA zone 0
    node_t* sentinel_node = node_new(0, NULL, NULL, NULL);
    // create search layers
-   search_layers = (search_layer**)malloc(num_numa_zones*sizeof(search_layer*));
+   enclaves = (enclave**)malloc(nb_threads*sizeof(enclave*));
    pthread_t* thds = (pthread_t*)malloc(num_numa_zones*sizeof(pthread_t));
    allocators = (numa_allocator**)malloc(num_numa_zones*sizeof(numa_allocator*));
    unsigned num_expected_nodes = (unsigned)(16 * initial * (1.0 + (update/100.0)));
    unsigned buffer_size = CACHE_LINE_SIZE * num_expected_nodes;
 
-   for(int i = 0; i < num_numa_zones; ++i) {
-      zone_init_args* zia = (zone_init_args*)malloc(sizeof(zone_init_args));
-      zia->numa_zone = i;
-      zia->node_sentinel = sentinel_node;
-      zia->allocator_size = buffer_size;
+   zone_init_args* zia = (zone_init_args*)malloc(sizeof(zone_init_args));
+   zia->node_sentinel = sentinel_node;
+   zia->allocator_size = buffer_size;
+   for(int i = 0; i < nb_threads; ++i) {
+      zia->cpu_num = i;
       pthread_create(&thds[i], NULL, zone_init, (void*)zia);
    }
 
@@ -521,14 +415,6 @@ int main(int argc, char **argv)
    i = 0;
    initial_populate = true;
 
-   // start data-layer-helper thread
-   bool test_complete = false;
-   bg_dl_args* data_info = (bg_dl_args*)malloc(sizeof(bg_dl_args));
-   data_info->head = sentinel_node;
-   data_info->tsleep = 15000;
-   data_info->done = &test_complete;
-   pthread_t dhelper_thread;
-   pthread_create(&dhelper_thread, NULL, data_layer_helper, (void*)data_info);
 
    for(int i = 0; i < num_numa_zones; ++i) {
       search_layers[i]->start_helper(0);
@@ -756,7 +642,6 @@ int main(int argc, char **argv)
    for(int i = 0; i < num_numa_zones; ++i) {
       search_layers[i]->stop_helper();
    }
-   pthread_join(dhelper_thread, NULL);
 
    // Cleanup STM
    TM_SHUTDOWN();

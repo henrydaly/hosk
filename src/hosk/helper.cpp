@@ -100,9 +100,9 @@ static void bg_trav_mnodes(enclave* obj) {
  * @obj - enclave object for reference
  * @job - operation to publish to the intermediate layer
  */
-void update_intermediate_layer(enclave* obj, op_t job) {
+void update_intermediate_layer(enclave* obj, op_t* job) {
    int      numa_zone= obj->get_numa_zone();
-   sl_key_t test_key = job->node->key;
+   sl_key_t test_key = job->key;
    inode_t* item     = obj->get_sentinel();
 #ifdef ADDRESS_CHECKING
    zone_access_check(numa_zone, item, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
@@ -116,7 +116,7 @@ void update_intermediate_layer(enclave* obj, op_t job) {
 #ifdef ADDRESS_CHECKING
       zone_access_check(numa_zone, next_item, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
 #endif
-      if (NULL == next_item || next_item->key > job->node->key) {
+      if (NULL == next_item || next_item->key > test_key) {
          next_item = item->down;
 #ifdef ADDRESS_CHECKING
          zone_access_check(numa_zone, next_item, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
@@ -128,7 +128,7 @@ void update_intermediate_layer(enclave* obj, op_t job) {
 #endif
             break;
          }
-      } else if (next_item->key == job->node->key) {
+      } else if (next_item->key == test_key) {
          mnode = item->intermed;
 #ifdef ADDRESS_CHECKING
          zone_access_check(numa_zone, mnode, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
@@ -145,8 +145,8 @@ void update_intermediate_layer(enclave* obj, op_t job) {
       zone_access_check(numa_zone, next, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
 #endif
       if(!next || next->key > test_key) {
-         // if not marked for deletion, we know it's an insert operation
-         if(job->node->val != NULL && job->node->val != job->node) {
+         // if node pointer is not NULL, we know it's an insert
+         if(job->node != NULL) {
             if(mnode->key == test_key) {
                if(mnode->marked) { mnode->marked = false; }
             } else {
@@ -159,7 +159,6 @@ void update_intermediate_layer(enclave* obj, op_t job) {
       }
       mnode = next;
    }
-   return 1;
 }
 
 /**
@@ -371,11 +370,11 @@ void update_index_layer(enclave* obj) {
 }
 
 /**
- * bg_remove() - attempts to remove a node from the data layer
+ * node_remove() - attempts to remove a node from the data layer
  * @prev - the node before the node to be deleted
  * @node - the node we are attempting to delete
  */
-void bg_remove(node_t* prev, node_t* node) {
+void node_remove(node_t* prev, node_t* node) {
    node_t *ptr, *insert;
    assert(prev);
    assert(node);
@@ -406,7 +405,7 @@ void* helper_loop(void* args) {
    enclave* obj         = (enclave*)args;
    inode_t* sentinel    = obj->get_sentinel();
    int      numa_zone   = obj->get_numa_zone();
-   op_t     local_job   = op_t();
+   op_t*    local_job   = new op_t();
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
@@ -423,7 +422,7 @@ void* helper_loop(void* args) {
          }
       }
       // Update intermediate layer from op array
-      op_t cur_job = local_job;
+      op_t* cur_job = local_job;
       while((cur_job = obj->opbuffer_remove(cur_job))) {
          update_intermediate_layer(obj, cur_job);
       }
@@ -437,5 +436,7 @@ void* helper_loop(void* args) {
  * TODO: Stuff to discuss for design/implementation
  * --> Initial population/resetting of indexes
  * --> My choice to work the enclave opbuffer internal indexes
- *
+ * --> Application thread: do we want to choose a key before we get control of mutex?
+ * --> Mutex handoff: helper thread is obvious, but what about application thread?
+ * --> Helper thread index update (already seems sequential. Do we need mutex?)
  */

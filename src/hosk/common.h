@@ -5,6 +5,7 @@
 #define COMMON_H_
 
 #include <atomic_ops.h>
+#include "tm.h"
 
 #define VOLATILE /* volatile */
 #define BARRIER() asm volatile("" ::: "memory");
