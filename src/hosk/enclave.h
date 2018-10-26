@@ -1,12 +1,11 @@
 /*
  * Interface for search layer object
  *
- * Author: Henry Daly, 2017
+ * Author: Henry Daly, 2018
  */
 #ifndef ENCLAVE_H_
 #define ENCLAVE_H_
 
-//#include "queue.h"
 #include "skiplist.h"
 
 // Uncomment to collect background stats - reduces performance
@@ -30,6 +29,44 @@ struct op_t {
    op_t():key(0), node(NULL){}
 };
 
+typedef struct barrier {
+   pthread_cond_t complete;
+   pthread_mutex_t mutex;
+   int count;
+   int crossing;
+} barrier_t;
+
+
+struct app_params {
+   //unsigned int first;
+   long range;
+   int update;
+   int unit_tx;
+   int alternate;
+   int effective;
+   unsigned int seed;
+   barrier_t *barrier;
+   unsigned long failures_because_contention;
+   VOLATILE AO_t stop;
+};
+
+struct app_res {
+   unsigned long add;
+   unsigned long added;
+   unsigned long remove;
+   unsigned long removed;
+   unsigned long contains;
+   unsigned long found;
+   unsigned long nb_aborts;
+   unsigned long nb_aborts_locked_read;
+   unsigned long nb_aborts_locked_write;
+   unsigned long nb_aborts_validate_read;
+   unsigned long nb_aborts_validate_write;
+   unsigned long nb_aborts_validate_commit;
+   unsigned long nb_aborts_invalid_memory;
+   unsigned long nb_aborts_double_write;
+   unsigned long max_retries;
+};
 
 class enclave {
 private:
@@ -37,7 +74,6 @@ private:
    pthread_t   hlpth;         // helper pthread
    pthread_t   appth;         // application pthread
    op_t*       opbuffer;      // successful local operation array
-   bool        index_busy;    // mutex for pthreads over index layer
    int         cpu_num;       // cpu on which enclave executes
    int         numa_zone;     // NUMA zone on which enclave executes
    int         non_del;       // # non deleted intermediate nodes
@@ -46,6 +82,8 @@ private:
    int         app_idx;       // index of application thread in circular array
    int         hlp_idx;       // index of helper thread in circular array
 public:
+   bool        index_busy;    // mutex for pthreads over index layer
+   app_params* params;        // parameters for the application thread execution
    bool  finished;
    bool  running;
    int   sleep_time;
@@ -55,14 +93,14 @@ public:
            ~enclave();
    void     start_helper(int);
    void     stop_helper(void);
-   void     start_application(XXX); // we'll need a data structure to initialize with
-   YYY      stop_application(void);
+   void     start_application(app_params* init);
+   app_res* stop_application(void);
    inode_t* get_sentinel(void);
    inode_t* set_sentinel(inode_t*);
    int      get_cpu(void);
    int      get_numa_zone(void);
    bool     opbuffer_insert(sl_key_t key, node_t* node);
-   op_t     opbuffer_remove(op_t passed);
+   op_t*    opbuffer_remove(op_t* passed);
    //void     reset_sentinel(void);
 
 #ifdef ADDRESS_CHECKING
@@ -77,4 +115,10 @@ public:
    void bg_stats(void);
 #endif
 };
+
+/* Public interface for application and helper thread functions */
+void* application_loop(void* args);
+void  node_remove(node_t* prev, node_t* node);
+void* helper_loop(void* args);
+
 #endif

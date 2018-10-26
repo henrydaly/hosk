@@ -7,7 +7,7 @@
 #define HELPER_H_
 #include "skiplist.h"
 
-/* Public background thread interface */
+/* Public helper thread interface */
 void  node_remove(node_t* prev, node_t* node);
 void* helper_loop(void* args);
 

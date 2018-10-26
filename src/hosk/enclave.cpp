@@ -1,7 +1,7 @@
 /*
  * enclave.cpp: search layer definition
  *
- * Author: Henry Daly, 2017
+ * Author: Henry Daly, 2018
  */
 
 
@@ -16,7 +16,6 @@
 #include <pthread.h>
 #include "enclave.h"
 #include "skiplist.h"
-#include "helper.h"
 #include "stdio.h"
 
 /* Constructor */
@@ -24,10 +23,11 @@ enclave::enclave(int size, int cpu, int zone, inode_t* s)
  :cpu_num(cpu), numa_zone(zone), sentinel(s)
 {
    buf_size = size;
-   opbuffer = new int[buf_size];
+   opbuffer = new op_t[buf_size];
    for(int i = 0; i < buf_size; i++) {
       opbuffer[i] = op_t();
    }
+   params=NULL;
    app_idx = hlp_idx = tall_del = non_del = 0;
    index_busy = finished = running = false;
    hlpth = appth = sleep_time = 0;
@@ -58,8 +58,8 @@ enclave::~enclave() {
 
 /* start_helper() - starts helper thread */
 void enclave::start_helper(int ssleep_time) {
-   sleep_time = ssleep_time;
    if(!running) {
+      sleep_time = ssleep_time;
       running = true;
       finished = false;
       pthread_create(&hlpth, NULL, helper_loop, (void*)this);
@@ -76,15 +76,16 @@ void enclave::stop_helper(void) {
 }
 
 /* start_application() - starts application thread */
-void enclave::start_application(XXX) {
-   // TODO
-   return;
+void enclave::start_application(app_params* init) {
+   params = init;
+   pthread_create(&appth, NULL, application_loop, (void*)this);
 }
 
 /* stop_application() - stops application thread*/
-YYY enclave::stop_application(void) {
-   // TODO
-   return;
+app_res* enclave::stop_application(void) {
+   app_res* results = NULL;
+   pthread_join(appth, (void**)&results);
+   return results;
 }
 
 /* get_sentinel() - return sentinel index node of search layer */
@@ -128,11 +129,11 @@ bool enclave::opbuffer_insert(sl_key_t key, node_t* node) {
  *  NOTE: return NULL on failure
  * @x - the element which will hold the copied array values
  */
-op_t enclave::opbuffer_remove(op_t passed) {
+op_t* enclave::opbuffer_remove(op_t* passed) {
    if((hlp_idx + 1) % buf_size == app_idx || hlp_idx == app_idx) return NULL;
    op_t cur_element = opbuffer[hlp_idx];
-   passed.key  = cur_element.key;
-   passed.node = cur_element.node;
+   passed->key  = cur_element.key;
+   passed->node = cur_element.node;
    hlp_idx = (hlp_idx + 1) % buf_size;
    return passed;
 }
