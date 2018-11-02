@@ -55,12 +55,12 @@ struct sl_mnode {
 };
 
 node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next);
-inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int zone);
-mnode_t* mnode_new(mnode_t* next, node_t* node, unsigned int level, int zone);
+inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int cpu);
+mnode_t* mnode_new(mnode_t* next, node_t* node, unsigned int level, int cpu);
 
 void node_delete(node_t *node);
-void inode_delete(inode_t *inode, int zone);
-void mnode_delete(mnode_t* mnode, int zone);
+void inode_delete(inode_t *inode, int cpu);
+void mnode_delete(mnode_t* mnode, int cpu);
 int data_layer_size(node_t* head, int flag);
 
 #ifdef ADDRESS_CHECKING

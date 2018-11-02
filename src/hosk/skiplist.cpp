@@ -52,9 +52,9 @@ node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next) {
  * @down  - the down inode pointer for the new inode
  * @node  - the node pointer for the new inode
  * @intermed - intermediate layer node
- * @zone  - NUMA zone
+ * @cpu  -  the cpu on which the thread executes
  */
-inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int zone) {
+inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int cpu) {
    inode_t *inode;
    if(initial_populate) {
       inode = (inode_t*)malloc(INODE_SZ);
@@ -65,7 +65,7 @@ inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int zone) {
       return inode;
    }
 
-   numa_allocator* local = allocators[zone];
+   numa_allocator* local = allocators[cpu];
    inode = (inode_t*)local->nalloc(INODE_SZ);
    inode->right      = right;
    inode->down       = down;
@@ -79,11 +79,11 @@ inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int zone) {
  * @next  - the right mnode pointer for the new mnode
  * @node  - the data layer node for the the new mnode
  * @level - the starting level of the new mnode
- * @zone  - NUMA zone
+ * @cpu  -  the cpu on which the thread executes
  */
-mnode_t* mnode_new(mnode_t* next, node_t* node, unsigned int level, int zone) {
+mnode_t* mnode_new(mnode_t* next, node_t* node, unsigned int level, int cpu) {
    mnode_t* mnode;
-   numa_allocator* local = allocators[zone];
+   numa_allocator* local = allocators[cpu];
    mnode = (mnode_t*)local->nalloc(MNODE_SZ);
    mnode->level   = level;
    mnode->key     = node->key;
@@ -104,20 +104,20 @@ void node_delete(node_t *node) {
 /**
  * inode_delete() - delete an index layer node
  * @inode - the index node to delete
- * @zone  - NUMA zone
+ * @cpu  -  the cpu on which the thread executes
  */
-void inode_delete(inode_t *inode, int zone) {
-   numa_allocator* local = allocators[zone];
+void inode_delete(inode_t *inode, int cpu) {
+   numa_allocator* local = allocators[cpu];
    local->nfree(inode, INODE_SZ);
 }
 
 /**
  * mnode_delete() - delete an intermediate node
  * @mnode - the intermediate node to delete
- * @zone  - NUMA zone
+ * @cpu  -  the cpu on which the thread executes
  */
-void mnode_delete(mnode_t* mnode, int zone) {
-   numa_allocator* local = allocators[zone];
+void mnode_delete(mnode_t* mnode, int cpu) {
+   numa_allocator* local = allocators[cpu];
    local->nfree(mnode, MNODE_SZ);
 }
 
@@ -141,7 +141,6 @@ int data_layer_size(node_t* head, int flag) {
    }
    return size;
 }
-
 #ifdef ADDRESS_CHECKING
 /**
  * check_addr() - check specific address using get_mempolicy to see if it is on the supposed node

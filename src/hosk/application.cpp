@@ -300,10 +300,16 @@ void* application_loop(void* args) {
             }
          }
       } else { // read
+         otype = CONTAINS;
          if(params->alternate) {
             if(params->update == 0) {
-               // TODO: discuss removing every other check being a known
-               key = rand_range_re(&params->seed, params->range);
+            	if(last < 0) {
+            		key = params->first;
+            		last = key;
+            	} else {
+            	   key = rand_range_re(&params->seed, params->range);
+                  last = -1;
+            	}
             } else { // update != 0
                if(last < 0) {
                   key = rand_range_re(&params->seed, params->range);
@@ -328,6 +334,7 @@ void* application_loop(void* args) {
             if(result == 1 && otype != CONTAINS) obj->opbuffer_insert(key, pnode);
          }
       }
+      unext = get_unext(params, lresults);
    }
    return lresults;
 }

@@ -3,7 +3,7 @@
  *
  * Author: Henry Daly, 2018
  *
- * Many of the functions here are courtesy of Synchrobench (V. Gramoli, 2013)
+ * NOTE: Some functions courtesy of Synchrobench (V. Gramoli, 2013)
  */
 
 #ifndef APPLICATION_H_
@@ -77,12 +77,12 @@ inline long rand_range_re(unsigned int *seed, long r) {
 }
 long rand_range_re(unsigned int *seed, long r);
 
+/* update_results() - update the results structure */
 int update_results(sl_optype_t otype, app_res* ares, int result, int key, int old_last, int alternate) {
    int last = old_last;
    switch (otype) {
       case CONTAINS:
          ares->contains++;
-         last = -1;
          if(result == 1) ares->found++;
          break;
       case INSERT:
@@ -103,6 +103,18 @@ int update_results(sl_optype_t otype, app_res* ares, int result, int key, int ol
       default: break;   // This should never happen
    }
    return last;
+}
+
+/* get_unext() - determine what the next operation will be */
+inline int get_unext(app_params* d, app_res* r) {
+   int result;
+   if(d->effective){ // A failed insert/delete is counted as a read-only tx
+      result = ((100 * (r->added + r->removed)) < (d->update * (r->add + r->remove + r->contains)));
+   } else {          // A failed insert/delete is counted as an update
+      result = (rand_range_re(&d->seed, 100) - 1 < d->update);
+   }
+
+   return result;
 }
 
 

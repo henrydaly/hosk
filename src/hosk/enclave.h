@@ -38,7 +38,7 @@ typedef struct barrier {
 
 
 struct app_params {
-   //unsigned int first;
+   unsigned int first;
    long range;
    int update;
    int unit_tx;
