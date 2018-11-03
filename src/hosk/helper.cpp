@@ -26,9 +26,9 @@
 #include <atomic_ops.h>
 #include <numa.h>
 #include "common.h"
-#include "helper.h"
 #include "skiplist.h"
 #include "enclave.h"
+
 /**
  * reset_indermediate_levels() - iterates through intermediate level and sets their level to 0
  * @obj - search layer object for reference
@@ -215,8 +215,7 @@ static int bg_raise_mlevel(mnode_t* mnode, inode_t* inode, int zone) {
  *
  * Returns 1 if a node was raised and 0 otherwise.
  */
-static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int zone)
-{
+static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int zone) {
    int raised = 0;
    inode_t *index, *inext, *inew, *above, *above_prev;
    above = above_prev = iprev_tall;
@@ -267,8 +266,7 @@ static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int 
  * Note: the lowest index level is removed by nullifying
  * the reference to the lowest level from the second lowest level.
  */
-void bg_lower_ilevel(inode_t *new_low, int zone)
-{
+void bg_lower_ilevel(inode_t *new_low, int zone) {
    inode_t *old_low = new_low->down;
 
    /* remove the lowest index level */
@@ -380,7 +378,6 @@ void node_remove(node_t* prev, node_t* node) {
    assert(node);
 
    if(node->val != node || node->key == 0) return;
-
    ptr = node->next;
    while(!ptr || ptr->key != 0) {
       // use key = 0 as marker for node to delete
@@ -406,6 +403,7 @@ void* helper_loop(void* args) {
    inode_t* sentinel    = obj->get_sentinel();
    int      numa_zone   = obj->get_numa_zone();
    op_t*    local_job   = new op_t();
+   int      seed        = 0;
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
@@ -414,29 +412,16 @@ void* helper_loop(void* args) {
 
    while(1) {
       if(obj->finished) break;
-      if(!obj->index_busy) {
-         if(CAS(&obj->index_busy, false, true)) {
-            // Helper thread has exclusive access to the index layer
-            update_index_layer(obj);
-            obj->index_busy = false;
-         }
-      }
+      usleep(obj->sleep_time);
       // Update intermediate layer from op array
       op_t* cur_job = local_job;
       while((cur_job = obj->opbuffer_remove(cur_job))) {
          update_intermediate_layer(obj, cur_job);
       }
-      usleep(obj->sleep_time);
+      // Update index layer on predetermined frequency
+      if(rand_range_re(&obj->update_seed, 100) < obj->update_freq) {
+         update_index_layer(obj);
+      }
    }
    return NULL;
 }
-
-
-/*
- * TODO: Stuff to discuss for design/implementation
- * --> Initial population/resetting of indexes
- * --> My choice to work the enclave opbuffer internal indexes
- * --> Application thread: do we want to choose a key before we get control of mutex?
- * --> Mutex handoff: helper thread is obvious, but what about application thread?
- * --> Helper thread index update (already seems sequential. Do we need mutex?)
- */

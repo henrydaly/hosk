@@ -24,10 +24,8 @@ numa_allocator** allocators;
  * index layer (which will be scrapped at end of populate) will not waste
  * allocator space
  */
-extern bool initial_populate;
 
 /* - Public skiplist interface - */
-
 /**
  * node_new() - create a new data layer node
  * @key  - the key for the new node
@@ -56,15 +54,6 @@ node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next) {
  */
 inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int cpu) {
    inode_t *inode;
-   if(initial_populate) {
-      inode = (inode_t*)malloc(INODE_SZ);
-      inode->right      = right;
-      inode->down       = down;
-      inode->intermed   = intermed;
-      inode->key        = intermed->key;
-      return inode;
-   }
-
    numa_allocator* local = allocators[cpu];
    inode = (inode_t*)local->nalloc(INODE_SZ);
    inode->right      = right;

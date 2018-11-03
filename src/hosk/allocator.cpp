@@ -22,8 +22,8 @@
  * the old value is returned.
  */
 
-#include <stdio.h>
 #include <numa.h>
+#include <stdio.h>
 #include "allocator.h"
 #include "common.h"
 

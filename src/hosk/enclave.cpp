@@ -19,18 +19,19 @@
 #include "stdio.h"
 
 /* Constructor */
-enclave::enclave(int size, int cpu, int zone, inode_t* s)
- :cpu_num(cpu), numa_zone(zone), sentinel(s)
+enclave::enclave(int size, int cpu, int zone, inode_t* s, int freq)
+ :cpu_num(cpu), numa_zone(zone), sentinel(s), update_freq(freq), buf_size(size)
 {
-   buf_size = size;
+   update_seed = rand();
    opbuffer = new op_t[buf_size];
    for(int i = 0; i < buf_size; i++) {
       opbuffer[i] = op_t();
    }
-   params=NULL;
+   aparams = NULL;
+   iparams = NULL;
    app_idx = hlp_idx = tall_del = non_del = 0;
-   index_busy = finished = running = false;
-   hlpth = appth = sleep_time = 0;
+   finished = running = false;
+   hlpth = appth = sleep_time = num_populated = 0;
 //   srand(time(NULL));
 #ifdef BG_STATS
    shadow_stats.loops = 0;
@@ -76,8 +77,8 @@ void enclave::stop_helper(void) {
 }
 
 /* start_application() - starts application thread */
-void enclave::start_application(app_params* init) {
-   params = init;
+void enclave::start_application(app_param* init) {
+   aparams = init;
    pthread_create(&appth, NULL, application_loop, (void*)this);
 }
 
@@ -138,10 +139,17 @@ op_t* enclave::opbuffer_remove(op_t* passed) {
    return passed;
 }
 
-/* reset_sentinel() - sets flag to later reset sentinel to fix towers */
-//void enclave::reset_sentinel(void) {
-//   repopulate = true;
-//}
+/* populate_initial() - populates num elements from local enclave */
+int enclave::populate_initial(int num, long range, uint seed, uint* last) {
+   if(iparams->num == 0) return 0;
+   iparams->num = num;
+   iparams->range = range;
+   iparams->seed = seed;
+   iparams->last = last;
+   pthread_create(&appth, NULL, initial_populate, (void*)this);
+   pthread_join(appth, NULL);
+   return num_populated;
+}
 
 #ifdef BG_STATS
 /**

@@ -55,13 +55,58 @@ finished.
 
 */
 
-#include <stdlib.h>
-#include <pthread.h>
 #include <assert.h>
 #include <atomic_ops.h>
-#include "application.h"
-#include "skiplist.h"
+#include <pthread.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include "common.h"
 #include "enclave.h"
+#include "skiplist.h"
+
+enum sl_optype { CONTAINS, DELETE, INSERT };
+typedef enum sl_optype sl_optype_t;
+
+// Helper functions for the application
+/* update_results() - update the results structure */
+int update_results(sl_optype_t otype, app_res* ares, int result, int key, int old_last, int alternate) {
+   int last = old_last;
+   switch (otype) {
+      case CONTAINS:
+         ares->contains++;
+         if(result == 1) ares->found++;
+         break;
+      case INSERT:
+         ares->add++;
+         if(result == 1) {
+            ares->added++;
+            last = key;
+         }
+         break;
+      case DELETE:
+         ares->remove++;
+         if(alternate) last = -1;
+         if(result == 1) {
+            ares->removed++;
+            last = -1;
+         }
+         break;
+      default: break;   // This should never happen
+   }
+   return last;
+}
+
+/* get_unext() - determine what the next operation will be */
+inline int get_unext(app_param* d, app_res* r) {
+   int result;
+   if(d->effective){ // A failed insert/delete is counted as a read-only tx
+      result = ((100 * (r->added + r->removed)) < (d->update * (r->add + r->remove + r->contains)));
+   } else {          // A failed insert/delete is counted as an update
+      result = (rand_range_re(&d->seed, 100) - 1 < d->update);
+   }
+
+   return result;
+}
 
 /* private functions */
 static int sl_finish_contains(sl_key_t key, node_t *node, val_t node_val);
@@ -76,7 +121,7 @@ static int sl_finish_insert(sl_key_t key, val_t val, node_t* node, val_t node_va
  *
  * Returns 1 if the search key is present and 0 otherwise.
  */
-static int sl_finish_contains(sl_key_t key, node_t *node, val_t node_val) {
+static int sl_finish_contains(sl_key_t key, node_t* node, val_t node_val) {
    int result = 0;
    assert(NULL != node);
    if ((key == node->key) && (NULL != node_val)) result = 1;
@@ -221,7 +266,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
  * @pnode  - pointer to the successfully updated node
  */
 int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
-      sl_key_t key, val_t val, node_t* pnode) {
+                     sl_key_t key, val_t val, node_t* pnode) {
    node_t* next = NULL;
    val_t node_val = NULL, next_val = NULL;
    int result = 0;
@@ -260,21 +305,26 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
    return result;
 }
 
+/* sl_do_operation() - performs data layer operations */
+int sl_do_operation(enclave* obj, uint key, sl_optype_t otype, node_t* pnode) {
+   val_t val = (val_t)((long)key);
+   node_t* node = sl_traverse_index(obj, key);
+   int result = sl_traverse_data(obj, node, otype, key, val, pnode);
+   return result;
+}
+
 /**
  * application_loop() - defines the execution flow of the application thread in each enclave
  * @args - the enclave object that owns the application thread
  */
 void* application_loop(void* args) {
    enclave*    obj      = (enclave*)args;
-   inode_t*    sentinel = obj->get_sentinel();
-   int         numa_zone= obj->get_numa_zone();
-   app_params* params   = obj->params;
+   app_param*  params   = obj->aparams;
    app_res*    lresults = new app_res();
-   VOLATILE AO_t stop   = params->stop;
+   VOLATILE AO_t *stop  = params->stop;
    int unext, last = -1;
-   unsigned int key = 0;
-   sl_optype_t otype = CONTAINS;
-   val_t val;
+   uint key = 0;
+   sl_optype_t otype;
 
    // Pin to CPU
    cpu_set_t cpuset;
@@ -282,10 +332,11 @@ void* application_loop(void* args) {
    CPU_SET(obj->get_cpu(), &cpuset);
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 
+   barrier_cross(params->barrier);
    /* Is the first op an update? */
    unext = (rand_range_re(&params->seed, 100) - 1 < params->update);
 
-   while(AO_load_full(&stop) == 0) {
+   while(AO_load_full(stop) == 0) {
 
       if(unext) { // update
          if (last < 0) { // add
@@ -322,19 +373,31 @@ void* application_loop(void* args) {
          }
 
       }
-      val = (val_t)((long)key);
-      if(!obj->index_busy) {
-         if(CAS(&obj->index_busy, false, true)) {
-            // Application thread has exclusive access to the index layer
-            node_t* node = sl_traverse_index(obj, key);
-            obj->index_busy = false;
-            node_t* pnode = NULL;
-            int result = sl_traverse_data(obj, node, otype, key, val, pnode);
-            last = update_results(otype, lresults, result, key, last, params->alternate);
-            if(result == 1 && otype != CONTAINS) obj->opbuffer_insert(key, pnode);
+      node_t* pnode = NULL;
+      int result = sl_do_operation(obj, key, otype, pnode);
+      last = update_results(otype, lresults, result, key, last, params->alternate);
+      if(result && otype != CONTAINS) {
+         while(!obj->opbuffer_insert(key, pnode)){
+            printf("Waiting to insert...");
          }
       }
       unext = get_unext(params, lresults);
    }
    return lresults;
+}
+
+/* initial_populate() - performs initial population from local enclave */
+void* initial_populate(void* args) {
+   enclave*    obj      = (enclave*)args;
+   init_param* params   = obj->iparams;
+   while(obj->num_populated < params->num) {
+      node_t* pnode = NULL;
+      int key = rand_range_re(&params->seed, params->range);
+      if(sl_do_operation(obj, key, INSERT, pnode)) {
+         obj->num_populated++;
+         *params->last = key;
+         while(!obj->opbuffer_insert(key, pnode)){}
+      }
+   }
+   return NULL;
 }

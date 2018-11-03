@@ -26,7 +26,6 @@ typedef void* val_t;
 typedef unsigned int uint;
 
 /* data layer nodes */
-typedef VOLATILE struct sl_node node_t;
 struct sl_node {
    struct sl_node*   prev;
    struct sl_node*   next;
@@ -36,7 +35,6 @@ struct sl_node {
 };
 
 /* index layer nodes */
-typedef VOLATILE struct sl_inode inode_t;
 struct sl_inode {
    struct sl_inode*  right;
    struct sl_inode*  down;
@@ -45,7 +43,6 @@ struct sl_inode {
 };
 
 /* intermediate layer nodes */
-typedef VOLATILE struct sl_mnode mnode_t;
 struct sl_mnode {
    struct sl_mnode*  next;
    struct sl_node*   node;
@@ -53,6 +50,10 @@ struct sl_mnode {
    unsigned int      level;
    bool              marked;
 };
+
+typedef VOLATILE struct sl_node  node_t;
+typedef VOLATILE struct sl_inode inode_t;
+typedef VOLATILE struct sl_mnode mnode_t;
 
 node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next);
 inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int cpu);
