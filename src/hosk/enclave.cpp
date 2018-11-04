@@ -53,9 +53,6 @@ enclave::~enclave() {
       stop_helper();
       stop_application();
    }
-   for(int i = 0; i < buf_size; i++) {
-      delete opbuffer[i];
-   }
    delete opbuffer;
 }
 

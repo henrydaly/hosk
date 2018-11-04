@@ -70,10 +70,7 @@ private:
    int         buf_size;      // size of the circular op array
    int         app_idx;       // index of application thread in circular array
    int         hlp_idx;       // index of helper thread in circular array
-   bool        finished;      // represents if helper thread is finished
    bool        running;       // represents if helper thread is running
-   int         sleep_time;    // time for helper thread to sleep between loops
-   int         num_populated; // number of elements inserted during initial population
 
 public:
    app_param*  aparams;       // parameters for the application thread execution
@@ -82,6 +79,9 @@ public:
    int         tall_del;      // # deleted intermediate nodes w/ towers above
    uint        update_seed;   // seed for helper thread random generator
    int         update_freq;   // frequency of index layer updates
+   int         num_populated; // number of elements inserted during initial population
+   int         sleep_time;    // time for helper thread to sleep between loops
+   bool        finished;      // represents if helper thread is finished
 
             enclave(int size, int cpu, int zone, inode_t* sent, int freq);
            ~enclave();

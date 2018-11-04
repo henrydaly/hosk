@@ -326,7 +326,7 @@ int main(int argc, char **argv) {
    init_param* pop_params = (init_param*)malloc(sizeof(init_param));
    pop_params->range = range;
    pop_params->seed = seed;
-   pop_params = &last;
+   pop_params->last = &last;
    for(int j = 0; j < nb_threads; j++) {
       // if size !divide across threads -> first m threads get + 1
       // NOTE: no need to check m==0 due to if statement construction

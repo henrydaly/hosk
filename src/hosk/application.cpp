@@ -13,6 +13,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 #include "common.h"
 #include "enclave.h"
 #include "skiplist.h"
