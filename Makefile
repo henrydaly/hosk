@@ -5,9 +5,7 @@ LFBENCHS = src/hosk
 # Only compile C11/GNU11 algorithms with compatible compiler
 GCC_GTEQ_490 := $(shell expr `gcc -dumpversion | sed -e 's/\.\([0-9][0-9]\)/\1/g' -e 's/\.\([0-9]\)/0\1/g' -e 's/^[0-9]\{3,4\}$$/&00/'` \>= 40900)
 ifeq "$(GCC_GTEQ_490)" "1"
-	BENCHS +=
-	LBENCHS += src/linkedlists/versioned
-	LFBENCHS += src/linkedlists/selfish
+	BENCHS += src/hosk
 endif
 
 #MAKEFLAGS+=-j4
@@ -19,7 +17,7 @@ MALLOC=TC
 all:	lockfree 
 
 lockfree: clean-build
-	for dir in $(LFBENCHS); do \
+	for dir in $(BENCHS); do \
 	$(MAKE) "STM=LOCKFREE" -C $$dir; \
 	done
 

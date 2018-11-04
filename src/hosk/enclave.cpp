@@ -1,16 +1,14 @@
 /*
- * enclave.cpp: search layer definition
+ * enclave.cpp: Definition of enclave functionality
  *
  * Author: Henry Daly, 2018
  */
 
-
 /**
  * Module Overview:
  *
- * The enclave class provides an abstraction for the index and intermediate
- * layer of a NUMA zone. One object is created per NUMA zone.
- *
+ * The enclave class provides an abstraction for an application
+ * and helper thread running on the same core.
  */
 
 #include <pthread.h>
@@ -32,7 +30,7 @@ enclave::enclave(int size, int cpu, int zone, inode_t* s, int freq)
    app_idx = hlp_idx = tall_del = non_del = 0;
    finished = running = false;
    hlpth = appth = sleep_time = num_populated = 0;
-//   srand(time(NULL));
+   srand(time(NULL));
 #ifdef BG_STATS
    shadow_stats.loops = 0;
    shadow_stats.raises = 0;
@@ -55,6 +53,10 @@ enclave::~enclave() {
       stop_helper();
       stop_application();
    }
+   for(int i = 0; i < buf_size; i++) {
+      delete opbuffer[i];
+   }
+   delete opbuffer;
 }
 
 /* start_helper() - starts helper thread */
@@ -104,7 +106,7 @@ int enclave::get_cpu(void) {
    return cpu_num;
 }
 
-/* get_numa_zone() - return the NUMA zone on which the enclave executes */
+/* get_numa_zone() - return the enclave's numa_zone */
 int enclave::get_numa_zone(void) {
    return numa_zone;
 }
@@ -140,23 +142,17 @@ op_t* enclave::opbuffer_remove(op_t* passed) {
 }
 
 /* populate_initial() - populates num elements from local enclave */
-int enclave::populate_initial(int num, long range, uint seed, uint* last) {
-   if(iparams->num == 0) return 0;
-   iparams->num = num;
-   iparams->range = range;
-   iparams->seed = seed;
-   iparams->last = last;
+int enclave::populate_initial(init_param* params) {
+   if(!params->num) return 0;
+   iparams = params;
    pthread_create(&appth, NULL, initial_populate, (void*)this);
    pthread_join(appth, NULL);
    return num_populated;
 }
 
 #ifdef BG_STATS
-/**
- * bg_stats() - print background statistics
- */
-void enclave::bg_stats(void)
-{
+/* bg_stats() - print background statistics */
+void enclave::bg_stats(void) {
    printf("Loops = %d\n", shadow_stats.loops);
    printf("Raises = %d\n", shadow_stats.raises);
    printf("Lowers = %d\n", shadow_stats.lowers);

@@ -1,16 +1,15 @@
 /*
- * allocator.cpp: custom allocator for search layers
+ * allocator.cpp: custom NUMA allocator
  *
  * Author: Henry Daly, 2018
- *
  */
 
 /**
  * Module Overview:
  *
- * This is a custom allocator to process allocation requests for NUMASK. It services
- * index and intermediate layer node allocation requests. We deploy one instance per NUMA
- * zone. The inherent latency of the OS call in numa_alloc_local (it mmaps per request)
+ * This is a custom allocator to process allocation requests for HOSK (NUMASK reuse). It
+ * services index and intermediate layer node allocation requests. We deploy one instance
+ * per (thread). The inherent latency of the OS call in numa_alloc_local (it mmaps per request)
  * practically requires these. Our allocator consists of a linear allocator with three
  * main alterations:
  *    - it can reallocate buffers, if necessary

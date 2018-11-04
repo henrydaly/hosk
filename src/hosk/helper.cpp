@@ -1,68 +1,45 @@
 /*
- * helper.cpp: helper thread index and intermediate layer maintenance
+ * helper.cpp: Defines execution of helper threadss
  *
  * Author: Henry Daly, 2018
  *
  * Built off NUMASK background.cpp (2017)
  */
 
-
 /**
  * Module Overview:
  *
- * This provides two algorithms: one for managing the data layer (physical removals
- * and propagating updates to the NUMA zone queues) and one for managing the index
- * layers (index and intermediate layers) on each NUMA zone. One thread is spawned to
- * manage the data layer, and one thread per NUMA zone is spawned to manage that zone's
- * index layer. Based on No Hotspot's background.c file, this file splits bookkeeping
- * from the single helper thread into 1 + NUM_NUMA_ZONES threads to reduce NUMA
- * interconnect traffic.
- */
-
-#include <pthread.h>
-#include <assert.h>
-#include <unistd.h>
-#include <numaif.h>
-#include <atomic_ops.h>
-#include <numa.h>
-#include "common.h"
-#include "skiplist.h"
-#include "enclave.h"
-
-/**
- * reset_indermediate_levels() - iterates through intermediate level and sets their level to 0
- * @obj - search layer object for reference
+ * The helper thread loops and updates the intermediate layer from the opbuffer. It
+ * then attempts to update the index layer based on a set frequency.
  *
- * Note: this is only used after population for making balanced index towers
+ * NOTE: Index layer updates functions are based on No Hotspot's background.c
  */
-void reset_intermediate_levels(enclave* obj) {
-   mnode_t* node = obj->get_sentinel()->intermed;
-   node->level = node->node->level = 1;
-   mnode_t* next = node->next;
-   while(next != NULL) {
-      next->level = next->node->level = 0;
-      next = next->next;
-   }
-}
+
+#include <assert.h>
+#include <atomic_ops.h>
+#include <pthread.h>
+#include <unistd.h>
+#include "common.h"
+#include "enclave.h"
+#include "skiplist.h"
 
 /**
  * bg_mremove - starts the physical removal of @mnode
  * @prev  - the node before the one to remove
  * @mnode - the node to finish removing
- * @zone  - NUMA zone
+ * @cpu   - thread cpu
+ * returns 1 if deleted, 0 if not
  *
  * Note: since this operates on the intermediate layer alone,
  * no synchronization techniques are needed
- *
- * returns 1 if deleted, 0 if not
  */
-int bg_mremove(mnode_t* prev, mnode_t* mnode, int zone) {
+int bg_mremove(mnode_t* prev, mnode_t* mnode, int cpu) {
    int result = 0;
    assert(prev);
    assert(mnode);
    if(mnode->level == 0 && mnode->marked) {
       prev->next = mnode->next;
-      mnode_delete(mnode, zone);
+      mnode_delete(mnode, cpu);
       result = 1;
    }
    return result;
@@ -81,7 +58,7 @@ static void bg_trav_mnodes(enclave* obj) {
 #endif
 
    while (NULL != node) {
-      if(bg_mremove(prev, node, obj->get_numa_zone())) {
+      if(bg_mremove(prev, node, obj->get_cpu())) {
          node = prev->next;
       } else {
          if(!node->marked)          { ++obj->non_del; }
@@ -101,7 +78,7 @@ static void bg_trav_mnodes(enclave* obj) {
  * @job - operation to publish to the intermediate layer
  */
 void update_intermediate_layer(enclave* obj, op_t* job) {
-   int      numa_zone= obj->get_numa_zone();
+   int      cpu      = obj->get_cpu();
    sl_key_t test_key = job->key;
    inode_t* item     = obj->get_sentinel();
 #ifdef ADDRESS_CHECKING
@@ -150,7 +127,7 @@ void update_intermediate_layer(enclave* obj, op_t* job) {
             if(mnode->key == test_key) {
                if(mnode->marked) { mnode->marked = false; }
             } else {
-               mnode->next = mnode_new(next, job->node, 0, numa_zone);
+               mnode->next = mnode_new(next, job->node, 0, cpu);
             }
          } else {
             if(mnode->key == test_key) { mnode->marked = true; }
@@ -165,9 +142,8 @@ void update_intermediate_layer(enclave* obj, op_t* job) {
  * bg_raise_mlevel - raise intermediate nodes into index levels
  * @mnode - starting intermediate node
  * @inode - starting index node at bottom layer
- * @zone  - local NUMA zone
- */
-static int bg_raise_mlevel(mnode_t* mnode, inode_t* inode, int zone) {
+ * @cpu   - thread cpu */
+static int bg_raise_mlevel(mnode_t* mnode, inode_t* inode, int cpu) {
    int raised = 0;
    mnode_t *prev, *node, *next;
    inode_t *inew, *above, *above_prev;
@@ -192,7 +168,7 @@ static int bg_raise_mlevel(mnode_t* mnode, inode_t* inode, int zone) {
             }
 
             /* add a new index item above node */
-            inew = inode_new(above_prev->right, NULL, node, zone);
+            inew = inode_new(above_prev->right, NULL, node, cpu);
             above_prev->right = inew;
             node->level = 1;
             if(node->node->level < 1){ node->node->level = 1; }
@@ -211,11 +187,11 @@ static int bg_raise_mlevel(mnode_t* mnode, inode_t* inode, int zone) {
  * @iprev      - the first index node at this level
  * @iprev_tall - the first index node at the next highest level
  * @height     - the height of the level we are raising
- * @zone    - NUMA zone
+ * @cpu        - thread cpu
  *
  * Returns 1 if a node was raised and 0 otherwise.
  */
-static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int zone) {
+static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int cpu) {
    int raised = 0;
    inode_t *index, *inext, *inew, *above, *above_prev;
    above = above_prev = iprev_tall;
@@ -244,7 +220,7 @@ static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int 
             if (above != iprev_tall->right) { above_prev = above_prev->right; }
          }
 
-         inew = inode_new(above_prev->right, index, index->intermed, zone);
+         inew = inode_new(above_prev->right, index, index->intermed, cpu);
          above_prev->right = inew;
          index->intermed->level = height + 1;
          if(index->intermed->node->level < height + 1) {
@@ -261,12 +237,12 @@ static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int 
 /**
  * bg_lower_ilevel - lower the index level
  * @new_low - the first index item in the second lowest level
- * @zone    - NUMA zone
+ * @cpu     - thread cpu
  *
  * Note: the lowest index level is removed by nullifying
  * the reference to the lowest level from the second lowest level.
  */
-void bg_lower_ilevel(inode_t *new_low, int zone) {
+void bg_lower_ilevel(inode_t *new_low, int cpu) {
    inode_t *old_low = new_low->down;
 
    /* remove the lowest index level */
@@ -280,7 +256,7 @@ void bg_lower_ilevel(inode_t *new_low, int zone) {
    /* garbage collect the old low level */
    while (NULL != old_low) {
       inode_t* next = old_low->right;
-      inode_delete(old_low, zone);
+      inode_delete(old_low, cpu);
       old_low = next;
    }
 }
@@ -293,7 +269,7 @@ void update_index_layer(enclave* obj) {
    inode_t* sentinel = obj->get_sentinel();
    inode_t *inode, *inew;
    inode_t *inodes[MAX_LEVELS];
-   int numa_zone = obj->get_numa_zone();
+   int cpu = obj->get_cpu();
    int raised = 0; /* keep track of if we raised index level */
    int threshold;  /* for testing if we should lower index level */
    int i;
@@ -318,11 +294,11 @@ void update_index_layer(enclave* obj) {
    assert(NULL == inode);
 
    // raise bottom level nodes
-   raised = bg_raise_mlevel(inodes[0]->intermed, inodes[0], numa_zone);
+   raised = bg_raise_mlevel(inodes[0]->intermed, inodes[0], cpu);
 
    if (raised && (1 == sentinel->intermed->level)) {
       /* add a new index level */
-      sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->intermed, numa_zone));
+      sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->intermed, cpu));
 
       ++sentinel->intermed->level;
       if(sentinel->intermed->node->level < sentinel->intermed->level) {
@@ -341,12 +317,12 @@ void update_index_layer(enclave* obj) {
       raised = bg_raise_ilevel(inodes[i],    // level raised
                               inodes[i + 1], // level above
                               i + 1,         // current height
-                              numa_zone);
+                              cpu);
    }
 
    if (raised) {
       // add a new index level
-      sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->intermed, numa_zone));
+      sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->intermed, cpu));
       ++sentinel->intermed->level;
       if(sentinel->intermed->node->level < sentinel->intermed->level) {
          sentinel->intermed->node->level = sentinel->intermed->level;
@@ -359,7 +335,7 @@ void update_index_layer(enclave* obj) {
    // if needed, remove the lowest index level
    if (obj->tall_del > obj->non_del * 10) {
       if (NULL != inodes[1]) {
-         bg_lower_ilevel(inodes[1], numa_zone); // level above
+         bg_lower_ilevel(inodes[1], cpu); // level above
          #ifdef BG_STATS
          ++obj->shadow_stats.lowers;
          #endif
@@ -400,10 +376,7 @@ void node_remove(node_t* prev, node_t* node) {
  */
 void* helper_loop(void* args) {
    enclave* obj         = (enclave*)args;
-   inode_t* sentinel    = obj->get_sentinel();
-   int      numa_zone   = obj->get_numa_zone();
    op_t*    local_job   = new op_t();
-   int      seed        = 0;
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);

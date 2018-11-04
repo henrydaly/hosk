@@ -2,24 +2,19 @@
  * Interface for the skip list data structure.
  *
  * Author: Henry Daly, 2017
+ * Based on No Hostpot's skiplist.h
  */
 #ifndef SKIPLIST_H_
 #define SKIPLIST_H_
 
 #include <atomic_ops.h>
 #include "common.h"
-
-/* define for search layer and nohotspot address checking
-*    this is a sanity check to ensure that all memory addresses accessed
-*    are in the NUMA zone in which they should reside and for tracking
-*    percent local accesses in application thread execution
-*/
-//#define ADDRESS_CHECKING
-
 #define MAX_LEVELS   128
 #define NUM_LEVELS   2
 #define NODE_LEVEL   0
 #define INODE_LEVEL  1
+// Uncomment to allow address checking (determines NUMA local accesses) - reduces performance
+//#define ADDRESS_CHECKING
 
 typedef unsigned long sl_key_t;
 typedef void* val_t;

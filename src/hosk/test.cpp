@@ -99,27 +99,31 @@ int floor_log_2(unsigned int n) {
    return ((n == 0) ? (-1) : pos);
 }
 
+void catcher(int sig) { printf("CAUGHT SIGNAL %d\n", sig); }
+
 /* thread_init() - initializes the enclave object for a thread */
 void* thread_init(void* args) {
    int buffer_size = 1000;
    thread_init_args* zia = (thread_init_args*)args;
    int numa_zone = zia->cpu_num % num_numa_zones;
+
+   // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
    CPU_SET(zia->cpu_num, &cpuset);
-   sleep(1);
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
    numa_set_preferred(numa_zone);
+   sleep(1);
+
    numa_allocator* na = new numa_allocator(zia->allocator_size);
    allocators[zia->cpu_num] = na;
-   mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, numa_zone);
-   inode_t* inode = inode_new(NULL, NULL, mnode, numa_zone);
+   mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, zia->cpu_num);
+   inode_t* inode = inode_new(NULL, NULL, mnode, zia->cpu_num);
    enclave* en = new enclave(buffer_size, zia->cpu_num, numa_zone, inode, zia->freq);
    enclaves[zia->cpu_num] = en;
    return NULL;
 }
 
-void catcher(int sig) { printf("CAUGHT SIGNAL %d\n", sig); }
 
 int main(int argc, char **argv) {
    if(numa_available() == -1) {
@@ -146,7 +150,6 @@ int main(int argc, char **argv) {
    pthread_t *threads;
    pthread_attr_t attr;
    barrier_t barrier;
-
    app_param* data;
    struct timeval start, end;
    struct timespec timeout;
@@ -165,11 +168,8 @@ int main(int argc, char **argv) {
    while(1) {
       i = 0;
       c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:U:z:P:y:", long_options, &i);
-
       if(c == -1) break;
-
       if(c == 0 && long_options[i].flag == 0) { c = long_options[i].val; }
-
       switch(c) {
          case 0: break;
          case 'h':
@@ -250,8 +250,7 @@ int main(int argc, char **argv) {
    assert(range > 0 && range >= initial);
    assert(update >= 0 && update <= 100);
    assert(num_numa_zones >= MIN_NUMA_ZONES && num_numa_zones <= MAX_NUMA_ZONES);
-   if(num_numa_zones > nb_threads) { num_numa_zones = nb_threads; }  // don't spawn unnecessary background threads
-
+   if(num_numa_zones > nb_threads) { num_numa_zones = nb_threads; }
 
    printf("Set type     : skip list\n");
    printf("Duration     : %d\n", duration);
@@ -291,18 +290,22 @@ int main(int argc, char **argv) {
    unsigned num_expected_nodes = (unsigned)((2 * initial * (1.0 + (update/100.0))) / nb_threads);
    unsigned buffer_size = CACHE_LINE_SIZE * num_expected_nodes;
 
-   thread_init_args* zia = (thread_init_args*)malloc(sizeof(thread_init_args));
-   zia->node_sentinel = sentinel_node;
-   zia->allocator_size = buffer_size;
+   thread_init_args** zargs = (thread_init_args**)malloc(nb_threads*sizeof(thread_init_args*));
    for(int i = 0; i < nb_threads; ++i) {
+      thread_init_args* zia = (thread_init_args*)malloc(sizeof(thread_init_args));
+      zia->node_sentinel = sentinel_node;
+      zia->allocator_size = buffer_size;
       zia->cpu_num = i;
+      zargs[i] = zia;
       pthread_create(&thds[i], NULL, thread_init, (void*)zia);
    }
-
-   for(int i = 0; i < num_numa_zones; ++i) {
-      void *retval;
-      pthread_join(thds[i], &retval);
+   for(int i = 0; i < nb_threads; ++i) {
+      pthread_join(thds[i], NULL);
+      free(zargs[i]);
    }
+   free(thds);
+   free(zargs);
+
    stop = 0;
    global_seed = rand();
    if (pthread_key_create(&rng_seed_key, NULL) != 0) {
@@ -320,13 +323,18 @@ int main(int argc, char **argv) {
    uint last = 0;
    int d = initial / nb_threads;
    int m = initial % nb_threads;
+   init_param* pop_params = (init_param*)malloc(sizeof(init_param));
+   pop_params->range = range;
+   pop_params->seed = seed;
+   pop_params = &last;
    for(int j = 0; j < nb_threads; j++) {
       // if size !divide across threads -> first m threads get + 1
       // NOTE: no need to check m==0 due to if statement construction
-      if(j < m) add_nodes = d + 1;
-      else      add_nodes = d;
-      successfully_added += enclaves[i]->populate_initial(add_nodes, range, global_seed, &last);
+      if(j < m) pop_params->num = d + 1;
+      else      pop_params->num = d;
+      successfully_added += enclaves[i]->populate_initial(pop_params);
    }
+   free(pop_params);
    usleep(10);
 
    size = data_layer_size(sentinel_node, 1);
@@ -338,7 +346,7 @@ int main(int argc, char **argv) {
    // Reset helper thread with appropriate sleep time
    for(int i = 0; i < num_numa_zones; ++i) {
       enclaves[i]->stop_helper();
-      enclaves[i]->start_helper(1000000);
+      enclaves[i]->start_helper(100000);  //1000000
    }
 
    barrier_init(&barrier, nb_threads + 1);
@@ -353,7 +361,7 @@ int main(int argc, char **argv) {
       data[i].seed = rand();
       data[i].stop = &stop;
       data[i].barrier = &barrier;
-      enclaves[i]->start_application(data);
+      enclaves[i]->start_application(&data[i]);
    }
    pthread_attr_destroy(&attr);
 
@@ -376,8 +384,9 @@ int main(int argc, char **argv) {
       sigemptyset(&block_set);
       sigsuspend(&block_set);
    }
-   AO_store_full(&stop, 1);
 
+   // Stop threads
+   AO_store_full(&stop, 1);
    gettimeofday(&end, NULL);
    printf("STOPPING...\n");
 
@@ -450,7 +459,13 @@ int main(int argc, char **argv) {
    // Stop background threads
    for(int i = 0; i < num_numa_zones; ++i) {
       enclaves[i]->stop_helper();
+      delete enclaves[i];
+      delete allocators[i];
    }
+   free(threads);
+   free(data);
+   free(allocators);
+   free(enclaves);
    return 0;
 }
 

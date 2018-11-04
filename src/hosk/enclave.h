@@ -1,5 +1,5 @@
 /*
- * Interface for search layer object
+ * Interface for enclave object
  *
  * Author: Henry Daly, 2018
  */
@@ -10,13 +10,13 @@
 // Uncomment to collect background stats - reduces performance
 //#define BG_STATS
 #ifdef BG_STATS
-   typedef struct bg_stats bg_stats_t;
-   struct bg_stats {
-      int raises;
-      int loops;
-      int lowers;
-      int delete_succeeds;
-   };
+typedef struct bg_stats bg_stats_t;
+struct bg_stats {
+   int raises;
+   int loops;
+   int lowers;
+   int delete_succeeds;
+};
 #endif
 
 /* op_t is the element which the enclave's circular array will contain.
@@ -27,6 +27,7 @@ struct op_t {
    op_t():key(0), node(NULL){}
 };
 
+/* app_param defines the information passed to an application thread */
 struct app_param {
    unsigned int   first;
    long           range;
@@ -38,6 +39,8 @@ struct app_param {
    VOLATILE AO_t* stop;
 };
 
+/* init_param defines the information passed to a enclave thread during
+   initial population */
 struct init_param {
    int   num;
    long  range;
@@ -45,6 +48,8 @@ struct init_param {
    uint* last;
 };
 
+/* app_res defines the information returned to the main thread at the end
+   of an application thread's execution */
 struct app_res {
    unsigned long add;
    unsigned long added;
@@ -52,16 +57,6 @@ struct app_res {
    unsigned long removed;
    unsigned long contains;
    unsigned long found;
-   unsigned long nb_aborts;
-   unsigned long nb_aborts_locked_read;
-   unsigned long nb_aborts_locked_write;
-   unsigned long nb_aborts_validate_read;
-   unsigned long nb_aborts_validate_write;
-   unsigned long nb_aborts_validate_commit;
-   unsigned long nb_aborts_invalid_memory;
-   unsigned long nb_aborts_double_write;
-   unsigned long max_retries;
-   unsigned long failures_because_contention;
 };
 
 class enclave {
@@ -75,16 +70,16 @@ private:
    int         buf_size;      // size of the circular op array
    int         app_idx;       // index of application thread in circular array
    int         hlp_idx;       // index of helper thread in circular array
+   bool        finished;      // represents if helper thread is finished
+   bool        running;       // represents if helper thread is running
+   int         sleep_time;    // time for helper thread to sleep between loops
+   int         num_populated; // number of elements inserted during initial population
 
 public:
-   app_param*  aparams;        // parameters for the application thread execution
-   init_param* iparams;        // parameters for population
-   bool        finished;       // represents if helper thread is finished
-   bool        running;        // represents if helper thread is running
-   int         sleep_time;     // time for helper thread to sleep between loops
-   int         num_populated;  // number of elements inserted during initial population
-   int         non_del;        // # non deleted intermediate nodes
-   int         tall_del;       // # deleted intermediate nodes w/ towers above
+   app_param*  aparams;       // parameters for the application thread execution
+   init_param* iparams;       // parameters for population
+   int         non_del;       // # non deleted intermediate nodes
+   int         tall_del;      // # deleted intermediate nodes w/ towers above
    uint        update_seed;   // seed for helper thread random generator
    int         update_freq;   // frequency of index layer updates
 
@@ -100,7 +95,7 @@ public:
    int      get_numa_zone(void);
    bool     opbuffer_insert(sl_key_t key, node_t* node);
    op_t*    opbuffer_remove(op_t* passed);
-   int      populate_initial(int num, long range, uint seed, uint* last);
+   int      populate_initial(init_param* params);
 
 #ifdef ADDRESS_CHECKING
    bool           index_ignore;

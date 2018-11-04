@@ -1,18 +1,17 @@
 /*
- * skiplist.cpp: definitions of the skip list data structure, updated for NUMA architecture
+ * skiplist.cpp: definitions of the skip list data structure, updated to use custom allocator
  *
  * Author: Henry Daly, 2017
  *
  * Based on No Hotspot Skip List skiplist.c (2013)
  */
 
+#include <numaif.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <numa.h>
-#include <numaif.h>
+#include "allocator.h"
 #include "common.h"
 #include "skiplist.h"
-#include "allocator.h"
 
 numa_allocator** allocators;
 
@@ -21,9 +20,8 @@ numa_allocator** allocators;
 #define MNODE_SZ  sizeof(mnode_t)
 
 /* initial_populate serves as a manner in which initial population of the
- * index layer (which will be scrapped at end of populate) will not waste
- * allocator space
- */
+   index layer (which will be scrapped at end of populate) will not waste
+   allocator space */
 
 /* - Public skiplist interface - */
 /**

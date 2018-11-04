@@ -16,11 +16,11 @@ private:
    bool     empty;
    void*    buf_old;
    unsigned cache_size;
-   // for keeping track of the number of buffers
-   void**      other_buffers;
-   unsigned num_buffers;
-   // for half cache line alignment
-   bool     last_alloc_half;
+
+   void**   other_buffers;    // for keeping track of
+   unsigned num_buffers;      // the other buffers
+
+   bool     last_alloc_half;  // for half cache line alignment
 
    void nrealloc(void);
    void nreset(void);

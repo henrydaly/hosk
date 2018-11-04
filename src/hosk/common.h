@@ -45,7 +45,6 @@ typedef struct barrier {
 inline long rand_range(long r) {
    int m = RAND_MAX;
    int d, v = 0;
-
    do {
       d = (m > r ? r : m);
       v += 1 + (int)(d * ((double)rand()/((double)(m)+1.0)));
@@ -59,7 +58,6 @@ inline long rand_range(long r);
 inline long rand_range_re(unsigned int *seed, long r) {
    int m = RAND_MAX;
    int d, v = 0;
-
    do {
       d = (m > r ? r : m);
       v += 1 + (int)(d * ((double)rand_r(seed)/((double)(m)+1.0)));

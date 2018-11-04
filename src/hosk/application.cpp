@@ -1,59 +1,12 @@
 /*
- * nohotspot_ops.c: contains/insert/delete skip list operations
+ * application.cpp: Defines the execution of application threads
  *
- * Author: Ian Dick, 2013
+ * Author: Henry Daly, 2018
  *
- *
- * NUMASK changes: use enclave object instead of set struct
- *    ++ on successful operation - set status field of node
- *    ++ address checking (if defined)
- *
+ * NOTE: sl_finish_X sl_traverse_X based on No Hotspot's nohotspot_ops.c
+ *    (Author: Ian Dick, 2013)
+ *    For information, review: V. Gramoli's "No Hotspot Non-Blocking Skip List"
  */
-
-/*
-
-Module Overview
-
-This module provides the three basic skip list operations:
-> insert(key, val)
-> contains(key)
-> delete(key)
-
-These abstract operations are implemented using the algorithms
-described in:
-Crain, T., Gramoli, V., Raynal, M. (2013)
-"No Hotspot Non-Blocking Skip List", to appear in
-The 33rd IEEE International Conference on Distributed Computing
-Systems (ICDCS).
-
-This multi-thread skip list implementation is non-blocking,
-and uses the Compare-and-swap hardware primitive to manage
-concurrency and thread synchronisation. As a result,
-the three public operations described in this module require
-rather complicated implementations, in order to ensure that
-the data structure can be used correctly.
-
-All the abstract operations first use the private function
-sl_do_operation() to retrieve two nodes from the skip list:
-node - the node with greatest key k such that k is less than
-       or equal to the search key
-next - the node with the lowest key k such that k is greater than
-       the search key
-After node and next have been retrieved using sl_do_operation(),
-the appropriate action is taken based on the abstract operation
-being performed. For example, if we are conducting a delete and
-node.key is equal to the search key, then we try to extract node.
-
-Worthy to note is that worker threads in this skip list implementation
-do not perform maintenance of the index levels: this is carried
-out by a background thread. Worker threads do, however, perform
-maintenance on the node level. During sl_do_operation(), if a worker
-thread notices that a node it is traversing is logically deleted,
-it will stop what it is doing and attempt to finish deleting the
-node, and then resume it's previous course of action once this is
-finished.
-
-*/
 
 #include <assert.h>
 #include <atomic_ops.h>
@@ -67,7 +20,6 @@ finished.
 enum sl_optype { CONTAINS, DELETE, INSERT };
 typedef enum sl_optype sl_optype_t;
 
-// Helper functions for the application
 /* update_results() - update the results structure */
 int update_results(sl_optype_t otype, app_res* ares, int result, int key, int old_last, int alternate) {
    int last = old_last;
@@ -104,14 +56,8 @@ inline int get_unext(app_param* d, app_res* r) {
    } else {          // A failed insert/delete is counted as an update
       result = (rand_range_re(&d->seed, 100) - 1 < d->update);
    }
-
    return result;
 }
-
-/* private functions */
-static int sl_finish_contains(sl_key_t key, node_t *node, val_t node_val);
-static int sl_finish_delete(sl_key_t key, node_t *node, val_t node_val);
-static int sl_finish_insert(sl_key_t key, val_t val, node_t* node, val_t node_val, node_t* next, node_t* pnode);
 
 /**
  * sl_finish_contains() - contains skip list operation
@@ -210,9 +156,6 @@ static int sl_finish_insert(sl_key_t key, val_t val, node_t *node,
    return result;
 }
 
-
-/* - The public nohotspot_ops interface - */
-
 /**
  * sl_traverse_index() - traverse index layer and return entry point to data layer
  * @obj - the enclave
@@ -263,7 +206,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
  * @optype - the type of operation this is
  * @key    - the search key
  * @val    - the search value
- * @pnode  - pointer to the successfully updated node
+ * @pnode  - pointer to node if operation is insert
  */
 int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
                      sl_key_t key, val_t val, node_t* pnode) {
@@ -305,7 +248,13 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
    return result;
 }
 
-/* sl_do_operation() - performs data layer operations */
+/**
+ * sl_do_operation() - performs data layer operations
+ * @obj    - the enclave
+ * @key    - the search key
+ * @optype - the type of operation this is
+ * @pnode  - pointer to node if operation is insert
+ */
 int sl_do_operation(enclave* obj, uint key, sl_optype_t otype, node_t* pnode) {
    val_t val = (val_t)((long)key);
    node_t* node = sl_traverse_index(obj, key);
@@ -321,23 +270,25 @@ void* application_loop(void* args) {
    enclave*    obj      = (enclave*)args;
    app_param*  params   = obj->aparams;
    app_res*    lresults = new app_res();
-   VOLATILE AO_t *stop  = params->stop;
-   int unext, last = -1;
-   uint key = 0;
+   int         unext    = -1;
+   int         last     = -1;
+   uint        key      = 0;
    sl_optype_t otype;
+   VOLATILE AO_t *stop  = params->stop;
 
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
    CPU_SET(obj->get_cpu(), &cpuset);
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+   sleep(1);
 
    barrier_cross(params->barrier);
    /* Is the first op an update? */
    unext = (rand_range_re(&params->seed, 100) - 1 < params->update);
 
    while(AO_load_full(stop) == 0) {
-
+      // Obtain the key for the next operation
       if(unext) { // update
          if (last < 0) { // add
             key = rand_range_re(&params->seed, params->range);
@@ -371,7 +322,6 @@ void* application_loop(void* args) {
          } else {
             key = rand_range_re(&params->seed, params->range);
          }
-
       }
       node_t* pnode = NULL;
       int result = sl_do_operation(obj, key, otype, pnode);
@@ -386,10 +336,21 @@ void* application_loop(void* args) {
    return lresults;
 }
 
-/* initial_populate() - performs initial population from local enclave */
+/**
+ * initial_populate() - performs initial population from local enclave
+ * @args - the enclave object that owns the application thread
+ */
 void* initial_populate(void* args) {
    enclave*    obj      = (enclave*)args;
    init_param* params   = obj->iparams;
+
+   // Pin to CPU
+   cpu_set_t cpuset;
+   CPU_ZERO(&cpuset);
+   CPU_SET(obj->get_cpu(), &cpuset);
+   pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+   sleep(1);
+
    while(obj->num_populated < params->num) {
       node_t* pnode = NULL;
       int key = rand_range_re(&params->seed, params->range);
