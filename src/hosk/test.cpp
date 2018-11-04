@@ -392,28 +392,24 @@ int main(int argc, char **argv) {
 
    // Wait for thread completion
    for (i = 0; i < nb_threads; i++) {
-      app_res* results;
-      if (pthread_join(threads[i], (void**)&results) != 0) {
-         fprintf(stderr, "Error waiting for thread completion\n");
-         exit(1);
-      }
-      reads += results[i].contains;
-      effreads += results[i].contains +
-                 (results[i].add - results[i].added) +
-                 (results[i].remove - results[i].removed);
-      updates += (results[i].add + results[i].remove);
-      adds += results[i].added;
-      removes += results[i].removed;
-      effupds += results[i].removed + results[i].added;
-      size += results[i].added - results[i].removed;
+      app_res* results = enclaves[i]->stop_application();
+      reads += results->contains;
+      effreads += results->contains +
+                 (results->add - results->added) +
+                 (results->remove - results->removed);
+      updates += (results->add + results->remove);
+      adds += results->added;
+      removes += results->removed;
+      effupds += results->removed + results->added;
+      size += results->added - results->removed;
       /*
       printf("Thread %d\n", i);
-      printf("  #add        : %lu\n", results[i].add);
-      printf("    #added    : %lu\n", results[i].added);
-      printf("  #remove     : %lu\n", results[i].remove);
-      printf("    #removed  : %lu\n", results[i].removed);
-      printf("  #contains   : %lu\n", results[i].contains);
-      printf("  #found      : %lu\n", results[i].found);
+      printf("  #add        : %lu\n", results->add);
+      printf("    #added    : %lu\n", results->added);
+      printf("  #remove     : %lu\n", results->remove);
+      printf("    #removed  : %lu\n", results->removed);
+      printf("  #contains   : %lu\n", results->contains);
+      printf("  #found      : %lu\n", results->found);
       */
    }
    duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
