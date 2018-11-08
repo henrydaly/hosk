@@ -103,7 +103,7 @@ void catcher(int sig) { printf("CAUGHT SIGNAL %d\n", sig); }
 
 /* thread_init() - initializes the enclave object for a thread */
 void* thread_init(void* args) {
-   int buffer_size = 1000;
+   int buffer_size = 5000;
    thread_init_args* zia = (thread_init_args*)args;
    int numa_zone = zia->cpu_num % num_numa_zones;
 
@@ -260,7 +260,7 @@ int main(int argc, char **argv) {
    printf("Seed         : %d\n", seed);
    printf("Update rate  : %d\n", update);
    printf("Alternate    : %d\n", alternate);
-   printf("Effective   : %d\n", effective);
+   printf("Effective    : %d\n", effective);
    printf("Type sizes   : int=%d/long=%d/ptr=%d/word=%d\n", (int)sizeof(int), (int)sizeof(long), (int)sizeof(void *), (int)sizeof(uintptr_t));
    printf("NUMA Zones   : %d\n", num_numa_zones);
    printf("Update freq  : %d\n", update_frequency);
