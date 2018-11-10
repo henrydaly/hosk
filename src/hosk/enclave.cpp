@@ -15,15 +15,17 @@
 #include "enclave.h"
 #include "skiplist.h"
 #include "stdio.h"
-
+//TODO: get rid of passed buffer size
 /* Constructor */
 enclave::enclave(int size, int cpu, int zone, inode_t* s, int freq)
- :cpu_num(cpu), numa_zone(zone), sentinel(s), update_freq(freq), buf_size(size)
+ :cpu_num(cpu), numa_zone(zone), sentinel(s), update_freq(freq), buf_size(CAPACITY)
 {
    update_seed = rand();
-   opbuffer = new op_t[buf_size];
+   //opbuffer = new op_t[buf_size];
    for(int i = 0; i < buf_size; i++) {
-      opbuffer[i] = op_t();
+//      opbuffer[i] = op_t();
+      opbuffer[i].key = 0;
+      opbuffer[i].node = NULL;
    }
    aparams = NULL;
    iparams = NULL;
@@ -56,7 +58,7 @@ enclave::~enclave() {
       stop_helper();
       stop_application();
    }
-   delete opbuffer;
+//   delete opbuffer;
 }
 
 /* start_helper() - starts helper thread */
@@ -119,9 +121,9 @@ int enclave::get_numa_zone(void) {
  */
 bool enclave::opbuffer_insert(sl_key_t key, node_t* node) {
    if((app_idx + 1) % buf_size == hlp_idx) return false;
-   op_t cur_op = opbuffer[app_idx];
-   cur_op.key = key;
-   cur_op.node = node;
+//   op_t cur_op = opbuffer[app_idx];
+   opbuffer[app_idx].key = key;
+   opbuffer[app_idx].node = node;
    app_idx = (app_idx + 1) % buf_size;
    return true;
 }
@@ -130,15 +132,15 @@ bool enclave::opbuffer_insert(sl_key_t key, node_t* node) {
  * opbuffer_remove() - attempt to consume element in operation array
  *  the array element is copied by value into the passed element
  *  NOTE: return NULL on failure
- * @x - the element which will hold the copied array values
+ * @passed - the element which will hold the copied array values
  */
-op_t* enclave::opbuffer_remove(op_t* passed) {
+op_t* enclave::opbuffer_remove(op_t** passed) {
    if((hlp_idx + 1) % buf_size == app_idx || hlp_idx == app_idx) return NULL;
    op_t cur_element = opbuffer[hlp_idx];
-   passed->key  = cur_element.key;
-   passed->node = cur_element.node;
+   (*passed)->key  = cur_element.key;
+   (*passed)->node = cur_element.node;
    hlp_idx = (hlp_idx + 1) % buf_size;
-   return passed;
+   return (*passed);
 }
 
 /* populate_initial() - populates num elements from local enclave */

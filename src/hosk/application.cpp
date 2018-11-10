@@ -133,14 +133,14 @@ static int sl_finish_delete(sl_key_t key, node_t *node, val_t node_val) {
  *   fails due to concurrency.
  */
 static int sl_finish_insert(sl_key_t key, val_t val, node_t *node,
-      val_t node_val, node_t *next, node_t* pnode) {
+      val_t node_val, node_t *next, node_t** pnode) {
    int result = -1;
    node_t *newNode;
    if (node->key == key) {
       if (NULL == node_val) {
          if (CAS(&node->val, node_val, val)) {
             result = 1;
-            pnode = node;
+            *pnode = node;
          }
       } else { result = 0; }
    } else {
@@ -149,7 +149,7 @@ static int sl_finish_insert(sl_key_t key, val_t val, node_t *node,
          assert (node->next != node);
          if (NULL != next) { next->prev = newNode; } /* safe */
          result = 1;
-         pnode = newNode;
+         *pnode = newNode;
       } else {
          node_delete(newNode);
       }
@@ -225,7 +225,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
  * @pnode  - pointer to node if operation is insert
  */
 int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
-                     sl_key_t key, val_t val, node_t* pnode) {
+                     sl_key_t key, val_t val, node_t** pnode) {
    node_t* next = NULL;
    val_t node_val = NULL, next_val = NULL;
    int result = 0;
@@ -277,7 +277,7 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
  * @optype - the type of operation this is
  * @pnode  - pointer to node if operation is insert
  */
-int sl_do_operation(enclave* obj, uint key, sl_optype_t otype, node_t* pnode) {
+int sl_do_operation(enclave* obj, uint key, sl_optype_t otype, node_t** pnode) {
    val_t val = (val_t)((long)key);
    node_t* node = sl_traverse_index(obj, key);
    int result = sl_traverse_data(obj, node, otype, key, val, pnode);
@@ -346,7 +346,7 @@ void* application_loop(void* args) {
          }
       }
       node_t* pnode = NULL;
-      int result = sl_do_operation(obj, key, otype, pnode);
+      int result = sl_do_operation(obj, key, otype, &pnode);
 #ifdef COUNT_TRAVERSAL
       obj->total_ops++;
 #endif
@@ -379,7 +379,7 @@ void* initial_populate(void* args) {
    while(obj->num_populated < params->num) {
       node_t* pnode = NULL;
       int key = rand_range_re(&params->seed, params->range);
-      if(sl_do_operation(obj, key, INSERT, pnode)) {
+      if(sl_do_operation(obj, key, INSERT, &pnode)) {
          obj->num_populated++;
          *params->last = key;
          while(!obj->opbuffer_insert(key, pnode)){}

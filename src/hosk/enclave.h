@@ -6,6 +6,7 @@
 #ifndef ENCLAVE_H_
 #define ENCLAVE_H_
 #include "skiplist.h"
+#define CAPACITY  2500
 
 // Uncomment to collect stats on thread-local index and data layer traversal
 //#define COUNT_TRAVERSAL
@@ -67,7 +68,7 @@ private:
    inode_t*    sentinel;      // sentinel node of the index layer
    pthread_t   hlpth;         // helper pthread
    pthread_t   appth;         // application pthread
-   op_t*       opbuffer;      // successful local operation array
+   op_t        opbuffer[CAPACITY];      // successful local operation array
    int         cpu_num;       // cpu on which enclave executes
    int         numa_zone;     // NUMA zone on which enclave executes
    int         buf_size;      // size of the circular op array
@@ -97,13 +98,13 @@ public:
    int      get_cpu(void);
    int      get_numa_zone(void);
    bool     opbuffer_insert(sl_key_t key, node_t* node);
-   op_t*    opbuffer_remove(op_t* passed);
+   op_t*    opbuffer_remove(op_t** passed);
    int      populate_initial(init_param* params);
 
 #ifdef COUNT_TRAVERSAL
-   int trav_idx;
-   int trav_dat;
-   int total_ops;
+   uint trav_idx;
+   uint trav_dat;
+   uint total_ops;
 #endif
 
 #ifdef ADDRESS_CHECKING

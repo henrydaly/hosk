@@ -377,6 +377,7 @@ void node_remove(node_t* prev, node_t* node) {
 void* helper_loop(void* args) {
    enclave* obj         = (enclave*)args;
    op_t*    local_job   = new op_t();
+   bool     update_all  = (obj->sleep_time == 0);
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
@@ -388,11 +389,11 @@ void* helper_loop(void* args) {
       usleep(obj->sleep_time);
       // Update intermediate layer from op array
       op_t* cur_job = local_job;
-      while((cur_job = obj->opbuffer_remove(cur_job))) {
+      while((cur_job = obj->opbuffer_remove(&cur_job))) {
          update_intermediate_layer(obj, cur_job);
       }
       // Update index layer on predetermined frequency
-      if(rand_range_re(&obj->update_seed, 100) < obj->update_freq) {
+      if(update_all || rand_range_re(&obj->update_seed, 100) < obj->update_freq) {
          update_index_layer(obj);
       }
    }

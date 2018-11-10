@@ -128,6 +128,18 @@ int data_layer_size(node_t* head, int flag) {
    }
    return size;
 }
+void print_index(inode_t* s) {
+   printf("%ld", s->key);
+   while(1) {
+      while(s->right) {
+         printf(" -> %ld", s->right->key);
+         s = s->right;
+      }
+      s = s->down;
+      if(!s) break;
+      else printf("\n%ld", s->key);
+   }
+}
 #ifdef ADDRESS_CHECKING
 /**
  * check_addr() - check specific address using get_mempolicy to see if it is on the supposed node

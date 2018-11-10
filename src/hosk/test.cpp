@@ -103,7 +103,7 @@ void catcher(int sig) { printf("CAUGHT SIGNAL %d\n", sig); }
 
 /* thread_init() - initializes the enclave object for a thread */
 void* thread_init(void* args) {
-   int buffer_size = 5000;
+   int buffer_size = 2500;
    thread_init_args* zia = (thread_init_args*)args;
    int numa_zone = zia->cpu_num % num_numa_zones;
 
@@ -331,10 +331,10 @@ int main(int argc, char **argv) {
       // NOTE: no need to check m==0 due to if statement construction
       if(j < m) pop_params->num = d + 1;
       else      pop_params->num = d;
-      successfully_added += enclaves[i]->populate_initial(pop_params);
+      successfully_added += enclaves[j]->populate_initial(pop_params);
    }
    free(pop_params);
-   usleep(10);
+   //usleep(10);
 
    size = data_layer_size(sentinel_node, 1);
    printf("Set size     : %d\n", size);
@@ -344,12 +344,10 @@ int main(int argc, char **argv) {
 
    // Reset helper thread with appropriate sleep time
    for(int i = 0; i < nb_threads; ++i) {
+      while(enclaves[i]->get_sentinel()->intermed->level < floor_log_2(d)){}
       enclaves[i]->stop_helper();
       enclaves[i]->start_helper(100000);  //1000000
-   }
-   // Get heights of each enclave index layer
-   for(int j = 0; j < nb_threads; ++j) {
-      printf("  Level of enclave %d: %d\n", j, enclaves[j]->get_sentinel()->intermed->level);
+      printf("  Level of enclave %d: %d\n", i, enclaves[i]->get_sentinel()->intermed->level);
    }
 
    barrier_init(&barrier, nb_threads + 1);
@@ -435,18 +433,21 @@ int main(int argc, char **argv) {
       printf("  #upd trials : %lu (%f / s)\n", updates, updates * 1000.0 / duration);
    } else { printf("%lu (%f / s)\n", updates, updates * 1000.0 / duration); }
 #ifdef COUNT_TRAVERSAL
-   int total_idx_travs = 0, total_dat_travs = 0, total_ops = 0;
-   int avg_idx_trav = 0, avg_dat_trav = 0;
+   uint total_idx_travs = 0, total_dat_travs = 0, total_ops = 0;
+   uint avg_idx_trav = 0, avg_dat_trav = 0;
+   uint tavg_idx_trav = 0, tavg_dat_trav = 0;
    for(int j = 0; j < nb_threads; ++j) {
-      total_idx_travs += enclaves[i]->trav_idx;
-      total_dat_travs += enclaves[i]->trav_dat;
-      total_ops       += enclaves[i]->total_ops;
-      avg_idx_trav = enclaves[i]->trav_idx / enclaves[i]->total_ops;
-      avg_dat_trav = enclaves[i]->trav_dat / enclaves[i]->total_ops;
+      total_idx_travs += enclaves[j]->trav_idx;
+      total_dat_travs += enclaves[j]->trav_dat;
+      total_ops       += enclaves[j]->total_ops;
+      avg_idx_trav = enclaves[j]->trav_idx / enclaves[j]->total_ops;
+      avg_dat_trav = enclaves[j]->trav_dat / enclaves[j]->total_ops;
       printf("T %d: IDX Hops: %d, DAT Hops: %d\n", j, avg_idx_trav, avg_dat_trav);
+      tavg_idx_trav += avg_idx_trav;
+      tavg_dat_trav += avg_dat_trav;
    }
-   int tavg_idx_trav = total_idx_travs / total_ops;
-   int tavg_dat_trav = total_dat_travs / total_ops;
+   tavg_idx_trav /= nb_threads;
+   tavg_dat_trav /= nb_threads;
    printf("Average Index Hops: %d\n", tavg_idx_trav);
    printf("Average Data  Hops: %d\n", tavg_dat_trav);
 #endif
