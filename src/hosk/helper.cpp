@@ -58,7 +58,7 @@ static void bg_trav_mnodes(enclave* obj) {
 #endif
 
    while (NULL != node) {
-      if(bg_mremove(prev, node, obj->get_cpu())) {
+      if(bg_mremove(prev, node, obj->get_thread_id(HLP_IDX))) {
          node = prev->next;
       } else {
          if(!node->marked)          { ++obj->non_del; }
@@ -78,7 +78,7 @@ static void bg_trav_mnodes(enclave* obj) {
  * @job - operation to publish to the intermediate layer
  */
 void update_intermediate_layer(enclave* obj, op_t* job) {
-   int      cpu      = obj->get_cpu();
+   int      cpu      = obj->get_thread_id(HLP_IDX);
    sl_key_t test_key = job->key;
    inode_t* item     = obj->get_sentinel();
 #ifdef ADDRESS_CHECKING
@@ -269,7 +269,7 @@ void update_index_layer(enclave* obj) {
    inode_t* sentinel = obj->get_sentinel();
    inode_t *inode, *inew;
    inode_t *inodes[MAX_LEVELS];
-   int cpu = obj->get_cpu();
+   int cpu = obj->get_thread_id(HLP_IDX);
    int raised = 0; /* keep track of if we raised index level */
    int threshold;  /* for testing if we should lower index level */
    int i;
@@ -381,7 +381,7 @@ void* helper_loop(void* args) {
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
-   CPU_SET(obj->get_cpu(), &cpuset);
+   CPU_SET(obj->get_thread_id(HLP_IDX), &cpuset);
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 
    while(1) {

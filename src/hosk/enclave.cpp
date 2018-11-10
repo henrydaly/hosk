@@ -13,12 +13,13 @@
 
 #include <pthread.h>
 #include "enclave.h"
+#include "hardware_layout.h"
 #include "skiplist.h"
 #include "stdio.h"
 //TODO: get rid of passed buffer size
 /* Constructor */
-enclave::enclave(int size, int cpu, int zone, inode_t* s, int freq)
- :cpu_num(cpu), numa_zone(zone), sentinel(s), update_freq(freq), buf_size(CAPACITY)
+enclave::enclave(int size, core_t c, int zone, inode_t* s, int freq)
+ :core(c), numa_zone(zone), sentinel(s), update_freq(freq), buf_size(CAPACITY)
 {
    update_seed = rand();
    //opbuffer = new op_t[buf_size];
@@ -32,7 +33,6 @@ enclave::enclave(int size, int cpu, int zone, inode_t* s, int freq)
    app_idx = hlp_idx = tall_del = non_del = 0;
    finished = running = false;
    hlpth = appth = sleep_time = num_populated = 0;
-   srand(time(NULL));
 #ifdef COUNT_TRAVERSAL
    trav_idx = trav_dat = total_ops = 0;
 #endif
@@ -103,9 +103,12 @@ inode_t* enclave::set_sentinel(inode_t* new_sent) {
    return (sentinel = new_sent);
 }
 
-/* get_cpu() - return the cpu on which the enclave executes */
-int enclave::get_cpu(void) {
-   return cpu_num;
+/**
+ * get_thread_id() - return the cpu on which the enclave executes
+ * @idx - either 0 (application thread) or 1 (helper thread)
+ */
+int enclave::get_thread_id(int idx) {
+   return core.hwthread_id[idx];
 }
 
 /* get_numa_zone() - return the enclave's numa_zone */

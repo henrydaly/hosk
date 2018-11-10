@@ -294,14 +294,14 @@ void* application_loop(void* args) {
    app_res*    lresults = new app_res();
    int         unext    = -1;
    int         last     = -1;
-   uint        key      = 0;
+   uint        key      =  0;
    sl_optype_t otype;
    VOLATILE AO_t *stop  = params->stop;
 
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
-   CPU_SET(obj->get_cpu(), &cpuset);
+   CPU_SET(obj->get_thread_id(APP_IDX), &cpuset);
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
    sleep(1);
 
@@ -372,7 +372,7 @@ void* initial_populate(void* args) {
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
-   CPU_SET(obj->get_cpu(), &cpuset);
+   CPU_SET(obj->get_thread_id(APP_IDX), &cpuset);
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
    sleep(1);
 

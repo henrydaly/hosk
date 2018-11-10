@@ -6,8 +6,10 @@
 #ifndef ENCLAVE_H_
 #define ENCLAVE_H_
 #include "skiplist.h"
-#define CAPACITY  2500
-
+#include "hardware_layout.h"
+#define CAPACITY  10000
+#define APP_IDX   0
+#define HLP_IDX   1
 // Uncomment to collect stats on thread-local index and data layer traversal
 //#define COUNT_TRAVERSAL
 
@@ -69,7 +71,8 @@ private:
    pthread_t   hlpth;         // helper pthread
    pthread_t   appth;         // application pthread
    op_t        opbuffer[CAPACITY];      // successful local operation array
-   int         cpu_num;       // cpu on which enclave executes
+   //int         cpu_num;       // cpu on which enclave executes
+   core_t      core;          // holds the hardware thread ids of the app and helper thread
    int         numa_zone;     // NUMA zone on which enclave executes
    int         buf_size;      // size of the circular op array
    int         app_idx;       // index of application thread in circular array
@@ -87,7 +90,7 @@ public:
    int         sleep_time;    // time for helper thread to sleep between loops
    bool        finished;      // represents if helper thread is finished
 
-            enclave(int size, int cpu, int zone, inode_t* sent, int freq);
+            enclave(int size, core_t c, int zone, inode_t* sent, int freq);
            ~enclave();
    void     start_helper(int);
    void     stop_helper(void);
@@ -95,7 +98,7 @@ public:
    app_res* stop_application(void);
    inode_t* get_sentinel(void);
    inode_t* set_sentinel(inode_t*);
-   int      get_cpu(void);
+   int      get_thread_id(int idx);
    int      get_numa_zone(void);
    bool     opbuffer_insert(sl_key_t key, node_t* node);
    op_t*    opbuffer_remove(op_t** passed);

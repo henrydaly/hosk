@@ -31,6 +31,7 @@
 #include "allocator.h"
 #include "common.h"
 #include "enclave.h"
+#include "hardware_layout.h"
 #include "skiplist.h"
 
 #define DEFAULT_DURATION               10000
@@ -52,10 +53,11 @@
 #define VAL_MIN                        INT_MIN
 #define VAL_MAX                        INT_MAX
 
-struct thread_init_args {
-   int      cpu_num;
+struct tinit_args {
+   core_t   core;
+   uint     sock_num;
    node_t*  node_sentinel;
-   unsigned allocator_size;
+   uint     allocator_size;
    uint     freq;
 };
 
@@ -104,23 +106,24 @@ void catcher(int sig) { printf("CAUGHT SIGNAL %d\n", sig); }
 /* thread_init() - initializes the enclave object for a thread */
 void* thread_init(void* args) {
    int buffer_size = 2500;
-   thread_init_args* zia = (thread_init_args*)args;
-   int numa_zone = zia->cpu_num % num_numa_zones;
+   tinit_args* zia = (tinit_args*)args;
+   int numa_zone = zia->sock_num;
+   int thread_id = zia->core.hwthread_id[APP_IDX];
 
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
-   CPU_SET(zia->cpu_num, &cpuset);
+   CPU_SET(thread_id, &cpuset);
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
    numa_set_preferred(numa_zone);
    sleep(1);
 
    numa_allocator* na = new numa_allocator(zia->allocator_size);
-   allocators[zia->cpu_num] = na;
-   mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, zia->cpu_num);
-   inode_t* inode = inode_new(NULL, NULL, mnode, zia->cpu_num);
-   enclave* en = new enclave(buffer_size, zia->cpu_num, numa_zone, inode, zia->freq);
-   enclaves[zia->cpu_num] = en;
+   allocators[thread_id] = na;
+   mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, thread_id);
+   inode_t* inode = inode_new(NULL, NULL, mnode, thread_id);
+   enclave* en = new enclave(buffer_size, zia->core, numa_zone, inode, zia->freq);
+   enclaves[thread_id] = en;
    return NULL;
 }
 
@@ -250,6 +253,13 @@ int main(int argc, char **argv) {
    assert(range > 0 && range >= initial);
    assert(update >= 0 && update <= 100);
    assert(num_numa_zones >= MIN_NUMA_ZONES && num_numa_zones <= MAX_NUMA_ZONES);
+   // get hardware info
+   hl_t* cur_hw = get_hardware_layout();
+
+   int max_thread_num = cur_hw->max_cpu_num;
+   if(nb_threads * 2 > max_thread_num) {
+      printf("ERROR: application thread <= %d (max hw threads) / 2. Changing to %d.\n", max_thread_num, (max_thread_num / 2));
+   }
 
    printf("Set type     : skip list\n");
    printf("Duration     : %d\n", duration);
@@ -278,7 +288,7 @@ int main(int argc, char **argv) {
 
    if (seed == 0) { srand((int)time(0)); }
    else           { srand(seed); }
-   levelmax = floor_log_2((unsigned int) initial);
+   levelmax = floor_log_2((unsigned int) initial / nb_threads);
 
    // create sentinel node on NUMA zone 0
    node_t* sentinel_node = node_new(0, NULL, NULL, NULL);
@@ -289,14 +299,23 @@ int main(int argc, char **argv) {
    unsigned num_expected_nodes = (unsigned)((2 * initial * (1.0 + (update/100.0))) / nb_threads);
    unsigned buffer_size = CACHE_LINE_SIZE * num_expected_nodes;
 
-   thread_init_args** zargs = (thread_init_args**)malloc(nb_threads*sizeof(thread_init_args*));
+   tinit_args** zargs = (tinit_args**)malloc(nb_threads*sizeof(tinit_args*));
+   int sock_id = 0;
+   int core_id = 0;
    for(int i = 0; i < nb_threads; ++i) {
-      thread_init_args* zia = (thread_init_args*)malloc(sizeof(thread_init_args));
-      zia->node_sentinel = sentinel_node;
-      zia->allocator_size = buffer_size;
-      zia->cpu_num = i;
+      tinit_args* zia      = (tinit_args*)malloc(sizeof(tinit_args));
+      socket_t cur_sock    = cur_hw->sockets[sock_id];
+      zia->node_sentinel   = sentinel_node;
+      zia->allocator_size  = buffer_size;
+      zia->core            = cur_sock.cores[core_id];
+      zia->sock_num        = sock_id;
       zargs[i] = zia;
       pthread_create(&thds[i], NULL, thread_init, (void*)zia);
+      sock_id++;
+      if(sock_id == cur_hw->num_sockets) {
+         sock_id = 0;
+         core_id++;
+      }
    }
    for(int i = 0; i < nb_threads; ++i) {
       pthread_join(thds[i], NULL);
@@ -477,6 +496,7 @@ int main(int argc, char **argv) {
       delete enclaves[i];
       delete allocators[i];
    }
+   free_hardware_layout(cur_hw);
    free(threads);
    free(data);
    free(allocators);
