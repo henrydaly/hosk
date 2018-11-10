@@ -170,20 +170,32 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
 #ifdef ADDRESS_CHECKING
    zone_access_check(this_node, item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
+#ifdef COUNT_TRAVERSAL
+   obj->trav_idx++;
+#endif
    while (1) {
       next_item = item->right;
 #ifdef ADDRESS_CHECKING
       zone_access_check(this_node, next_item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+#endif
+#ifdef COUNT_TRAVERSAL
+      obj->trav_idx++;
 #endif
       if (NULL == next_item || next_item->key > key) {
          next_item = item->down;
 #ifdef ADDRESS_CHECKING
          zone_access_check(this_node, next_item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
+#ifdef COUNT_TRAVERSAL
+         obj->trav_idx++;
+#endif
          if (NULL == next_item) {
             ret_node = item->intermed->node;
 #ifdef ADDRESS_CHECKING
             zone_access_check(this_node, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+#endif
+#ifdef COUNT_TRAVERSAL
+            obj->trav_idx++;
 #endif
             break;
          }
@@ -191,6 +203,9 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
          ret_node = item->intermed->node;
 #ifdef ADDRESS_CHECKING
          zone_access_check(this_node, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+#endif
+#ifdef COUNT_TRAVERSAL
+         obj->trav_idx++;
 #endif
          break;
       }
@@ -218,6 +233,9 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
    while (1) {
       while (node == (node_val = node->val)) {
          node = node->prev;
+#ifdef COUNT_TRAVERSAL
+         obj->trav_dat++;
+#endif
 #ifdef ADDRESS_CHECKING
          zone_access_check(this_node, node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
@@ -225,6 +243,9 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
       next = node->next;
 #ifdef ADDRESS_CHECKING
       zone_access_check(this_node, next, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+#endif
+#ifdef COUNT_TRAVERSAL
+   obj->trav_dat++;
 #endif
       if(NULL != next) {
          next_val = next->val;
@@ -326,6 +347,9 @@ void* application_loop(void* args) {
       }
       node_t* pnode = NULL;
       int result = sl_do_operation(obj, key, otype, pnode);
+#ifdef COUNT_TRAVERSAL
+      obj->total_ops++;
+#endif
       last = update_results(otype, lresults, result, key, last, params->alternate);
       if(result && otype != CONTAINS) {
          while(!obj->opbuffer_insert(key, pnode)){

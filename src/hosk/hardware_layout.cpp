@@ -62,9 +62,9 @@ hl_t* get_hardware_layout(void) {
    }
 
    // Get Hardware information and create structure
-   int socket_num        = std::stoi(pipe_to_string(socket_info));
-   int cores_per_socket  = std::stoi(pipe_to_string(core_info));
-   max_cpu_num       = std::stoi(pipe_to_string(num_cpu_info));
+   int socket_num       = std::stoi(pipe_to_string(socket_info));
+   int cores_per_socket = std::stoi(pipe_to_string(core_info));
+   max_cpu_num          = std::stoi(pipe_to_string(num_cpu_info));
    int num_hw_cpus = socket_num * cores_per_socket * threads_per_core;
    if(num_hw_cpus != max_cpu_num) {
       std::cout << "ERROR: lscpu parse issue - CPU numbers don't match!\n";

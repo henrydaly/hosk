@@ -7,6 +7,9 @@
 #define ENCLAVE_H_
 #include "skiplist.h"
 
+// Uncomment to collect stats on thread-local index and data layer traversal
+//#define COUNT_TRAVERSAL
+
 // Uncomment to collect background stats - reduces performance
 //#define BG_STATS
 #ifdef BG_STATS
@@ -96,6 +99,12 @@ public:
    bool     opbuffer_insert(sl_key_t key, node_t* node);
    op_t*    opbuffer_remove(op_t* passed);
    int      populate_initial(init_param* params);
+
+#ifdef COUNT_TRAVERSAL
+   int trav_idx;
+   int trav_dat;
+   int total_ops;
+#endif
 
 #ifdef ADDRESS_CHECKING
    bool           index_ignore;

@@ -31,6 +31,9 @@ enclave::enclave(int size, int cpu, int zone, inode_t* s, int freq)
    finished = running = false;
    hlpth = appth = sleep_time = num_populated = 0;
    srand(time(NULL));
+#ifdef COUNT_TRAVERSAL
+   trav_idx = trav_dat = total_ops = 0;
+#endif
 #ifdef BG_STATS
    shadow_stats.loops = 0;
    shadow_stats.raises = 0;

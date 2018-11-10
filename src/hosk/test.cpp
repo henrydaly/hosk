@@ -250,7 +250,6 @@ int main(int argc, char **argv) {
    assert(range > 0 && range >= initial);
    assert(update >= 0 && update <= 100);
    assert(num_numa_zones >= MIN_NUMA_ZONES && num_numa_zones <= MAX_NUMA_ZONES);
-   if(num_numa_zones > nb_threads) { num_numa_zones = nb_threads; }
 
    printf("Set type     : skip list\n");
    printf("Duration     : %d\n", duration);
@@ -344,9 +343,13 @@ int main(int argc, char **argv) {
    // nullify index nodes to rebalance sl (deprecated)
 
    // Reset helper thread with appropriate sleep time
-   for(int i = 0; i < num_numa_zones; ++i) {
+   for(int i = 0; i < nb_threads; ++i) {
       enclaves[i]->stop_helper();
       enclaves[i]->start_helper(100000);  //1000000
+   }
+   // Get heights of each enclave index layer
+   for(int j = 0; j < nb_threads; ++j) {
+      printf("  Level of enclave %d: %d\n", j, enclaves[j]->get_sentinel()->intermed->level);
    }
 
    barrier_init(&barrier, nb_threads + 1);
@@ -431,13 +434,28 @@ int main(int argc, char **argv) {
       printf("  #rmvs: %lu(%f /s)\n", removes, removes * 1000.0 / duration);
       printf("  #upd trials : %lu (%f / s)\n", updates, updates * 1000.0 / duration);
    } else { printf("%lu (%f / s)\n", updates, updates * 1000.0 / duration); }
-
+#ifdef COUNT_TRAVERSAL
+   int total_idx_travs = 0, total_dat_travs = 0, total_ops = 0;
+   int avg_idx_trav = 0, avg_dat_trav = 0;
+   for(int j = 0; j < nb_threads; ++j) {
+      total_idx_travs += enclaves[i]->trav_idx;
+      total_dat_travs += enclaves[i]->trav_dat;
+      total_ops       += enclaves[i]->total_ops;
+      avg_idx_trav = enclaves[i]->trav_idx / enclaves[i]->total_ops;
+      avg_dat_trav = enclaves[i]->trav_dat / enclaves[i]->total_ops;
+      printf("T %d: IDX Hops: %d, DAT Hops: %d\n", j, avg_idx_trav, avg_dat_trav);
+   }
+   int tavg_idx_trav = total_idx_travs / total_ops;
+   int tavg_dat_trav = total_dat_travs / total_ops;
+   printf("Average Index Hops: %d\n", tavg_idx_trav);
+   printf("Average Data  Hops: %d\n", tavg_dat_trav);
+#endif
 #ifdef ADDRESS_CHECKING
    int app_local = 0;
    int app_foreign = 0;
    int bkg_local = 0;
    int bkg_foreign = 0;
-   for(int i = 0; i < num_numa_zones; ++i) {
+   for(int i = 0; i < nb_threads; ++i) {
       bkg_local += enclaves[i]->bg_local_accesses;
       bkg_foreign += enclaves[i]->bg_foreign_accesses;
       app_local += enclaves[i]->ap_local_accesses;
@@ -453,7 +471,7 @@ int main(int argc, char **argv) {
 
    printf("Cleaning up...\n");
    // Stop background threads
-   for(int i = 0; i < num_numa_zones; ++i) {
+   for(int i = 0; i < nb_threads; ++i) {
       enclaves[i]->stop_helper();
       delete enclaves[i];
       delete allocators[i];
