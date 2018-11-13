@@ -54,7 +54,7 @@
 #define VAL_MAX                        INT_MAX
 
 struct tinit_args {
-   core_t   core;
+   core_t*   core;
    uint     sock_num;
    node_t*  node_sentinel;
    uint     allocator_size;
@@ -108,22 +108,24 @@ void* thread_init(void* args) {
    int buffer_size = 2500;
    tinit_args* zia = (tinit_args*)args;
    int numa_zone = zia->sock_num;
-   int thread_id = zia->core.hwthread_id[APP_IDX];
+   int athread_id = zia->core->hwthread_id[APP_IDX];
+   int hthread_id = zia->core->hwthread_id[HLP_IDX];
 
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
-   CPU_SET(thread_id, &cpuset);
+   CPU_SET(athread_id, &cpuset);
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
    numa_set_preferred(numa_zone);
    sleep(1);
 
    numa_allocator* na = new numa_allocator(zia->allocator_size);
-   allocators[thread_id] = na;
-   mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, thread_id);
-   inode_t* inode = inode_new(NULL, NULL, mnode, thread_id);
+   allocators[athread_id] = na;
+   mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, athread_id);
+   inode_t* inode = inode_new(NULL, NULL, mnode, athread_id);
    enclave* en = new enclave(buffer_size, zia->core, numa_zone, inode, zia->freq);
-   enclaves[thread_id] = en;
+//   enclave* en = new enclave(buffer_size, athread_id, hthread_id, numa_zone, inode, zia->freq);
+   enclaves[athread_id] = en;
    return NULL;
 }
 
@@ -307,7 +309,7 @@ int main(int argc, char **argv) {
       socket_t cur_sock    = cur_hw->sockets[sock_id];
       zia->node_sentinel   = sentinel_node;
       zia->allocator_size  = buffer_size;
-      zia->core            = cur_sock.cores[core_id];
+      zia->core            = &cur_sock.cores[core_id];
       zia->sock_num        = sock_id;
       zargs[i] = zia;
       pthread_create(&thds[i], NULL, thread_init, (void*)zia);

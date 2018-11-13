@@ -18,7 +18,9 @@
 #include "stdio.h"
 //TODO: get rid of passed buffer size
 /* Constructor */
-enclave::enclave(int size, core_t c, int zone, inode_t* s, int freq)
+//enclave::enclave(int size, int aid, int hid, int zone, inode_t* s, int freq)
+// :app_thd_id(aid), hlp_thd_id(hid), numa_zone(zone), sentinel(s), update_freq(freq), buf_size(CAPACITY)
+enclave::enclave(int size, core_t* c, int zone, inode_t* s, int freq)
  :core(c), numa_zone(zone), sentinel(s), update_freq(freq), buf_size(CAPACITY)
 {
    update_seed = rand();
@@ -108,7 +110,8 @@ inode_t* enclave::set_sentinel(inode_t* new_sent) {
  * @idx - either 0 (application thread) or 1 (helper thread)
  */
 int enclave::get_thread_id(int idx) {
-   return core.hwthread_id[idx];
+   return core->hwthread_id[idx];
+//   return (idx == APP_IDX) ? app_thd_id : app_thd_id;
 }
 
 /* get_numa_zone() - return the enclave's numa_zone */

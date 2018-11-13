@@ -72,7 +72,9 @@ private:
    pthread_t   appth;         // application pthread
    op_t        opbuffer[CAPACITY];      // successful local operation array
    //int         cpu_num;       // cpu on which enclave executes
-   core_t      core;          // holds the hardware thread ids of the app and helper thread
+   core_t*      core;          // holds the hardware thread ids of the app and helper thread
+   //uint        app_thd_id;
+   //uint        hlp_thd_id;
    int         numa_zone;     // NUMA zone on which enclave executes
    int         buf_size;      // size of the circular op array
    int         app_idx;       // index of application thread in circular array
@@ -90,7 +92,8 @@ public:
    int         sleep_time;    // time for helper thread to sleep between loops
    bool        finished;      // represents if helper thread is finished
 
-            enclave(int size, core_t c, int zone, inode_t* sent, int freq);
+            //enclave(int size, int aid, int hid, int zone, inode_t* sent, int freq);
+            enclave(int size, core_t* c, int zone, inode_t* sent, int freq);
            ~enclave();
    void     start_helper(int);
    void     stop_helper(void);

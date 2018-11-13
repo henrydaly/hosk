@@ -62,12 +62,12 @@ hl_t* get_hardware_layout(void) {
       if(ccore % cores_per_socket == 0) {
          ccore = 0;
          csocket++;
+         if(csocket % socket_num == 0) {
+            csocket = 0;
+            cphysical++;
+         }
       }
-      if(csocket % socket_num == 0) {
-         csocket = 0;
-         cphysical++;
-      }
-      if((cphysical % threads_per_core == 0) && (socket_num != 1) && (pnum + 1 < num_hw_cpus)) {
+      if((cphysical == THREADS_PER_CORE) && (pnum + 1 < num_hw_cpus)) {
          std::cout << "ERROR: More CPUs than calculated!\n";
          exit(-1);
       }
