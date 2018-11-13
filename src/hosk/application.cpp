@@ -354,6 +354,7 @@ void* application_loop(void* args) {
       if(result && otype != CONTAINS) {
          while(!obj->opbuffer_insert(key, pnode)){
             printf("Waiting to insert...");
+            exit(-1);
          }
       }
       unext = get_unext(params, lresults);

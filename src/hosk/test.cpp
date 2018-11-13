@@ -54,11 +54,13 @@
 #define VAL_MAX                        INT_MAX
 
 struct tinit_args {
-   core_t*   core;
+   int      enclave_num;
+   core_t*  core;
    uint     sock_num;
    node_t*  node_sentinel;
    uint     allocator_size;
    uint     freq;
+   int      buffer_size;
 };
 
 int num_numa_zones = MAX_NUMA_ZONES;
@@ -120,12 +122,11 @@ void* thread_init(void* args) {
    sleep(1);
 
    numa_allocator* na = new numa_allocator(zia->allocator_size);
-   allocators[athread_id] = na;
-   mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, athread_id);
-   inode_t* inode = inode_new(NULL, NULL, mnode, athread_id);
-   enclave* en = new enclave(buffer_size, zia->core, numa_zone, inode, zia->freq);
-//   enclave* en = new enclave(buffer_size, athread_id, hthread_id, numa_zone, inode, zia->freq);
-   enclaves[athread_id] = en;
+   allocators[zia->enclave_num] = na;
+   mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, zia->enclave_num);
+   inode_t* inode = inode_new(NULL, NULL, mnode, zia->enclave_num);
+   enclave* en = new enclave(buffer_size, zia->core, numa_zone, inode, zia->freq, zia->enclave_num, zia->buffer_size);
+   enclaves[zia->enclave_num] = en;
    return NULL;
 }
 
@@ -304,13 +305,16 @@ int main(int argc, char **argv) {
    tinit_args** zargs = (tinit_args**)malloc(nb_threads*sizeof(tinit_args*));
    int sock_id = 0;
    int core_id = 0;
+   int opbuffer_sz = initial * 5;
    for(int i = 0; i < nb_threads; ++i) {
       tinit_args* zia      = (tinit_args*)malloc(sizeof(tinit_args));
       socket_t cur_sock    = cur_hw->sockets[sock_id];
       zia->node_sentinel   = sentinel_node;
       zia->allocator_size  = buffer_size;
+      zia->buffer_size     = opbuffer_sz;
       zia->core            = &cur_sock.cores[core_id];
       zia->sock_num        = sock_id;
+      zia->enclave_num     = i;
       zargs[i] = zia;
       pthread_create(&thds[i], NULL, thread_init, (void*)zia);
       sock_id++;
@@ -324,7 +328,6 @@ int main(int argc, char **argv) {
       free(zargs[i]);
    }
    free(thds);
-   free(zargs);
 
    stop = 0;
    global_seed = rand();
@@ -355,7 +358,6 @@ int main(int argc, char **argv) {
       successfully_added += enclaves[j]->populate_initial(pop_params);
    }
    free(pop_params);
-   //usleep(10);
 
    size = data_layer_size(sentinel_node, 1);
    printf("Set size     : %d\n", size);
@@ -365,7 +367,7 @@ int main(int argc, char **argv) {
 
    // Reset helper thread with appropriate sleep time
    for(int i = 0; i < nb_threads; ++i) {
-      while(enclaves[i]->get_sentinel()->intermed->level < floor_log_2(d)){}
+      while(enclaves[i]->get_sentinel()->intermed->level < (floor_log_2(d) - 1)){}
       enclaves[i]->stop_helper();
       enclaves[i]->start_helper(100000);  //1000000
       printf("  Level of enclave %d: %d\n", i, enclaves[i]->get_sentinel()->intermed->level);

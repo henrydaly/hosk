@@ -18,15 +18,12 @@
 #include "stdio.h"
 //TODO: get rid of passed buffer size
 /* Constructor */
-//enclave::enclave(int size, int aid, int hid, int zone, inode_t* s, int freq)
-// :app_thd_id(aid), hlp_thd_id(hid), numa_zone(zone), sentinel(s), update_freq(freq), buf_size(CAPACITY)
-enclave::enclave(int size, core_t* c, int zone, inode_t* s, int freq)
- :core(c), numa_zone(zone), sentinel(s), update_freq(freq), buf_size(CAPACITY)
+enclave::enclave(int size, core_t* c, int zone, inode_t* s, int freq, int e_num, int bsz)
+ :core(c), numa_zone(zone), sentinel(s), update_freq(freq), buf_size(bsz), enclave_num(e_num)
 {
    update_seed = rand();
-   //opbuffer = new op_t[buf_size];
+   opbuffer = new op_t[buf_size];
    for(int i = 0; i < buf_size; i++) {
-//      opbuffer[i] = op_t();
       opbuffer[i].key = 0;
       opbuffer[i].node = NULL;
    }
@@ -111,7 +108,11 @@ inode_t* enclave::set_sentinel(inode_t* new_sent) {
  */
 int enclave::get_thread_id(int idx) {
    return core->hwthread_id[idx];
-//   return (idx == APP_IDX) ? app_thd_id : app_thd_id;
+}
+
+/* get_enclave_num() - return the enclave id number */
+int enclave::get_enclave_num(void) {
+   return enclave_num;
 }
 
 /* get_numa_zone() - return the enclave's numa_zone */

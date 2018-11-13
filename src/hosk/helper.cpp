@@ -27,19 +27,19 @@
  * bg_mremove - starts the physical removal of @mnode
  * @prev  - the node before the one to remove
  * @mnode - the node to finish removing
- * @cpu   - thread cpu
+ * @enclave_id  - enclave
  * returns 1 if deleted, 0 if not
  *
  * Note: since this operates on the intermediate layer alone,
  * no synchronization techniques are needed
  */
-int bg_mremove(mnode_t* prev, mnode_t* mnode, int cpu) {
+int bg_mremove(mnode_t* prev, mnode_t* mnode, int enclave_id) {
    int result = 0;
    assert(prev);
    assert(mnode);
    if(mnode->level == 0 && mnode->marked) {
       prev->next = mnode->next;
-      mnode_delete(mnode, cpu);
+      mnode_delete(mnode, enclave_id);
       result = 1;
    }
    return result;
@@ -78,7 +78,7 @@ static void bg_trav_mnodes(enclave* obj) {
  * @job - operation to publish to the intermediate layer
  */
 void update_intermediate_layer(enclave* obj, op_t* job) {
-   int      cpu      = obj->get_thread_id(HLP_IDX);
+   int      enclave_id      = obj->get_enclave_num();
    sl_key_t test_key = job->key;
    inode_t* item     = obj->get_sentinel();
 #ifdef ADDRESS_CHECKING
@@ -127,7 +127,7 @@ void update_intermediate_layer(enclave* obj, op_t* job) {
             if(mnode->key == test_key) {
                if(mnode->marked) { mnode->marked = false; }
             } else {
-               mnode->next = mnode_new(next, job->node, 0, cpu);
+               mnode->next = mnode_new(next, job->node, 0, enclave_id);
             }
          } else {
             if(mnode->key == test_key) { mnode->marked = true; }
@@ -142,8 +142,8 @@ void update_intermediate_layer(enclave* obj, op_t* job) {
  * bg_raise_mlevel - raise intermediate nodes into index levels
  * @mnode - starting intermediate node
  * @inode - starting index node at bottom layer
- * @cpu   - thread cpu */
-static int bg_raise_mlevel(mnode_t* mnode, inode_t* inode, int cpu) {
+ * @enclave_id - enclave */
+static int bg_raise_mlevel(mnode_t* mnode, inode_t* inode, int enclave_id) {
    int raised = 0;
    mnode_t *prev, *node, *next;
    inode_t *inew, *above, *above_prev;
@@ -168,7 +168,7 @@ static int bg_raise_mlevel(mnode_t* mnode, inode_t* inode, int cpu) {
             }
 
             /* add a new index item above node */
-            inew = inode_new(above_prev->right, NULL, node, cpu);
+            inew = inode_new(above_prev->right, NULL, node, enclave_id);
             above_prev->right = inew;
             node->level = 1;
             if(node->node->level < 1){ node->node->level = 1; }
@@ -187,11 +187,11 @@ static int bg_raise_mlevel(mnode_t* mnode, inode_t* inode, int cpu) {
  * @iprev      - the first index node at this level
  * @iprev_tall - the first index node at the next highest level
  * @height     - the height of the level we are raising
- * @cpu        - thread cpu
+ * @enclave_id -  enclave
  *
  * Returns 1 if a node was raised and 0 otherwise.
  */
-static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int cpu) {
+static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int enclave_id) {
    int raised = 0;
    inode_t *index, *inext, *inew, *above, *above_prev;
    above = above_prev = iprev_tall;
@@ -220,7 +220,7 @@ static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int 
             if (above != iprev_tall->right) { above_prev = above_prev->right; }
          }
 
-         inew = inode_new(above_prev->right, index, index->intermed, cpu);
+         inew = inode_new(above_prev->right, index, index->intermed, enclave_id);
          above_prev->right = inew;
          index->intermed->level = height + 1;
          if(index->intermed->node->level < height + 1) {
@@ -237,12 +237,12 @@ static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int 
 /**
  * bg_lower_ilevel - lower the index level
  * @new_low - the first index item in the second lowest level
- * @cpu     - thread cpu
+ * @enclave_id - enclave
  *
  * Note: the lowest index level is removed by nullifying
  * the reference to the lowest level from the second lowest level.
  */
-void bg_lower_ilevel(inode_t *new_low, int cpu) {
+void bg_lower_ilevel(inode_t *new_low, int enclave_id) {
    inode_t *old_low = new_low->down;
 
    /* remove the lowest index level */
@@ -256,7 +256,7 @@ void bg_lower_ilevel(inode_t *new_low, int cpu) {
    /* garbage collect the old low level */
    while (NULL != old_low) {
       inode_t* next = old_low->right;
-      inode_delete(old_low, cpu);
+      inode_delete(old_low, enclave_id);
       old_low = next;
    }
 }
@@ -269,7 +269,7 @@ void update_index_layer(enclave* obj) {
    inode_t* sentinel = obj->get_sentinel();
    inode_t *inode, *inew;
    inode_t *inodes[MAX_LEVELS];
-   int cpu = obj->get_thread_id(HLP_IDX);
+   int enclave_id = obj->get_enclave_num();
    int raised = 0; /* keep track of if we raised index level */
    int threshold;  /* for testing if we should lower index level */
    int i;
@@ -294,11 +294,11 @@ void update_index_layer(enclave* obj) {
    assert(NULL == inode);
 
    // raise bottom level nodes
-   raised = bg_raise_mlevel(inodes[0]->intermed, inodes[0], cpu);
+   raised = bg_raise_mlevel(inodes[0]->intermed, inodes[0], enclave_id);
 
    if (raised && (1 == sentinel->intermed->level)) {
       /* add a new index level */
-      sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->intermed, cpu));
+      sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->intermed, enclave_id));
 
       ++sentinel->intermed->level;
       if(sentinel->intermed->node->level < sentinel->intermed->level) {
@@ -317,12 +317,12 @@ void update_index_layer(enclave* obj) {
       raised = bg_raise_ilevel(inodes[i],    // level raised
                               inodes[i + 1], // level above
                               i + 1,         // current height
-                              cpu);
+                              enclave_id);
    }
 
    if (raised) {
       // add a new index level
-      sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->intermed, cpu));
+      sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->intermed, enclave_id));
       ++sentinel->intermed->level;
       if(sentinel->intermed->node->level < sentinel->intermed->level) {
          sentinel->intermed->node->level = sentinel->intermed->level;
@@ -335,7 +335,7 @@ void update_index_layer(enclave* obj) {
    // if needed, remove the lowest index level
    if (obj->tall_del > obj->non_del * 10) {
       if (NULL != inodes[1]) {
-         bg_lower_ilevel(inodes[1], cpu); // level above
+         bg_lower_ilevel(inodes[1], enclave_id); // level above
          #ifdef BG_STATS
          ++obj->shadow_stats.lowers;
          #endif
