@@ -14,6 +14,7 @@
 #include "skiplist.h"
 
 numa_allocator** allocators;
+extern bool base_malloc;
 
 #define NODE_SZ   sizeof(node_t)
 #define INODE_SZ  sizeof(inode_t)
@@ -53,6 +54,14 @@ node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next) {
 inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int cpu) {
    inode_t *inode;
    numa_allocator* local = allocators[cpu];
+   if(base_malloc) {
+       inode = (inode_t*)malloc(INODE_SZ);
+       inode->right      = right;
+       inode->down       = down;
+       inode->intermed   = intermed;
+       inode->key        = intermed->key;
+       return inode;
+   }
    inode = (inode_t*)local->nalloc(INODE_SZ);
    inode->right      = right;
    inode->down       = down;
@@ -128,18 +137,17 @@ int data_layer_size(node_t* head, int flag) {
    }
    return size;
 }
-void print_index(inode_t* s) {
-   printf("%ld", s->key);
-   while(1) {
-      while(s->right) {
-         printf(" -> %ld", s->right->key);
-         s = s->right;
-      }
-      s = s->down;
-      if(!s) break;
-      else printf("\n%ld", s->key);
+
+int intermed_layer_size(mnode_t* head) {
+   int size = 0;
+   mnode_t* m = head;
+   while(m) {
+      if(!m->marked) size++;
+      m = m->next;
    }
+   return size;
 }
+
 #ifdef ADDRESS_CHECKING
 /**
  * check_addr() - check specific address using get_mempolicy to see if it is on the supposed node

@@ -70,6 +70,7 @@ pthread_key_t rng_seed_key;
 unsigned int levelmax;
 enclave** enclaves;
 extern numa_allocator** allocators;
+bool base_malloc = true;
 
 void barrier_init(barrier_t *b, int n) {
    pthread_cond_init(&b->complete, NULL);
@@ -305,7 +306,7 @@ int main(int argc, char **argv) {
    tinit_args** zargs = (tinit_args**)malloc(nb_threads*sizeof(tinit_args*));
    int sock_id = 0;
    int core_id = 0;
-   int opbuffer_sz = initial * 5;
+   int opbuffer_sz = 20000;   // TODO: fix the opbuffer size
    for(int i = 0; i < nb_threads; ++i) {
       tinit_args* zia      = (tinit_args*)malloc(sizeof(tinit_args));
       socket_t cur_sock    = cur_hw->sockets[sock_id];
@@ -350,12 +351,23 @@ int main(int argc, char **argv) {
    pop_params->range = range;
    pop_params->seed = seed;
    pop_params->last = &last;
-   for(int j = 0; j < nb_threads; j++) {
+   int num_to_pop = 0;
+   for(int j = 0; j < nb_threads; ++j) {
       // if size !divide across threads -> first m threads get + 1
       // NOTE: no need to check m==0 due to if statement construction
-      if(j < m) pop_params->num = d + 1;
-      else      pop_params->num = d;
-      successfully_added += enclaves[j]->populate_initial(pop_params);
+      if(j < m) num_to_pop = d + 1;
+      else      num_to_pop = d;
+      //successfully_added +=
+      enclaves[j]->populate_begin(pop_params, num_to_pop);
+   }
+   for(int k = 0; k < nb_threads; ++k) {
+      last = enclaves[k]->populate_end();
+      enclaves[k]->stop_helper();
+      enclaves[k]->reset_index_layer();
+   }
+   base_malloc = false;
+   for(int k = 0; k < nb_threads; ++k) {
+      enclaves[k]->start_helper(0);
    }
    free(pop_params);
 
@@ -367,7 +379,7 @@ int main(int argc, char **argv) {
 
    // Reset helper thread with appropriate sleep time
    for(int i = 0; i < nb_threads; ++i) {
-      while(enclaves[i]->get_sentinel()->intermed->level < (floor_log_2(d) - 1)){}
+      while(enclaves[i]->get_sentinel()->intermed->level < (floor_log_2(d) - 2)){}
       enclaves[i]->stop_helper();
       enclaves[i]->start_helper(100000);  //1000000
       printf("  Level of enclave %d: %d\n", i, enclaves[i]->get_sentinel()->intermed->level);

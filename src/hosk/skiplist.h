@@ -58,7 +58,8 @@ void node_delete(node_t *node);
 void inode_delete(inode_t *inode, int cpu);
 void mnode_delete(mnode_t* mnode, int cpu);
 int data_layer_size(node_t* head, int flag);
-void print_index(inode_t* s);
+int intermed_layer_size(mnode_t* head);
+
 
 #ifdef ADDRESS_CHECKING
    int check_addr(int supposed_node, void* addr);

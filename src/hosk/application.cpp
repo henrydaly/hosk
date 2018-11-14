@@ -377,11 +377,12 @@ void* initial_populate(void* args) {
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
    sleep(1);
 
-   while(obj->num_populated < params->num) {
+   int i = 0;
+   while(i < obj->num_populate) {
       node_t* pnode = NULL;
       int key = rand_range_re(&params->seed, params->range);
       if(sl_do_operation(obj, key, INSERT, &pnode)) {
-         obj->num_populated++;
+         i++;
          *params->last = key;
          while(!obj->opbuffer_insert(key, pnode)){}
       }

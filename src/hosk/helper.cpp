@@ -23,6 +23,18 @@
 #include "enclave.h"
 #include "skiplist.h"
 
+void reset_index(enclave* obj) {
+   mnode_t* node = obj->get_sentinel()->intermed;
+   node->level = node->node->level = 1;
+   mnode_t* next = node->next;
+   while(next != NULL) {
+      next->level = next->node->level = 0;
+      next = next->next;
+   }
+   obj->set_sentinel(inode_new(NULL, NULL, obj->get_sentinel()->intermed, obj->get_enclave_num()));
+}
+
+
 /**
  * bg_mremove - starts the physical removal of @mnode
  * @prev  - the node before the one to remove
@@ -383,6 +395,11 @@ void* helper_loop(void* args) {
    CPU_ZERO(&cpuset);
    CPU_SET(obj->get_thread_id(HLP_IDX), &cpuset);
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+
+   if(obj->reset_index) {
+      obj->reset_index = false;
+      reset_index(obj);
+   }
 
    while(1) {
       if(obj->finished) break;

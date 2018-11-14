@@ -30,8 +30,8 @@ enclave::enclave(int size, core_t* c, int zone, inode_t* s, int freq, int e_num,
    aparams = NULL;
    iparams = NULL;
    app_idx = hlp_idx = tall_del = non_del = 0;
-   finished = running = false;
-   hlpth = appth = sleep_time = num_populated = 0;
+   finished = running = reset_index = false;
+   hlpth = appth = sleep_time = num_populate = 0;
 #ifdef COUNT_TRAVERSAL
    trav_idx = trav_dat = total_ops = 0;
 #endif
@@ -150,13 +150,22 @@ op_t* enclave::opbuffer_remove(op_t** passed) {
    return (*passed);
 }
 
-/* populate_initial() - populates num elements from local enclave */
-int enclave::populate_initial(init_param* params) {
-   if(!params->num) return 0;
+/* populate_begin() - populates num elements from local enclave */
+void enclave::populate_begin(init_param* params, int num_to_pop) {
    iparams = params;
+   num_populate = num_to_pop;
    pthread_create(&appth, NULL, initial_populate, (void*)this);
+}
+
+/* populate_end() - finishes population */
+uint enclave::populate_end(void) {
    pthread_join(appth, NULL);
-   return num_populated;
+   return *(iparams->last);
+}
+
+/* reset_index() - resets index layers */
+void enclave::reset_index_layer(void) {
+   reset_index = true;
 }
 
 #ifdef BG_STATS
