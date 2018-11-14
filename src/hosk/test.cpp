@@ -108,9 +108,7 @@ void catcher(int sig) { printf("CAUGHT SIGNAL %d\n", sig); }
 
 /* thread_init() - initializes the enclave object for a thread */
 void* thread_init(void* args) {
-   int buffer_size = 2500;
    tinit_args* zia = (tinit_args*)args;
-   int numa_zone = zia->sock_num;
    int athread_id = zia->core->hwthread_id[APP_IDX];
    int hthread_id = zia->core->hwthread_id[HLP_IDX];
 
@@ -119,14 +117,14 @@ void* thread_init(void* args) {
    CPU_ZERO(&cpuset);
    CPU_SET(athread_id, &cpuset);
    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-   numa_set_preferred(numa_zone);
+   numa_set_preferred(zia->sock_num);
    sleep(1);
 
    numa_allocator* na = new numa_allocator(zia->allocator_size);
    allocators[zia->enclave_num] = na;
    mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, zia->enclave_num);
    inode_t* inode = inode_new(NULL, NULL, mnode, zia->enclave_num);
-   enclave* en = new enclave(buffer_size, zia->core, numa_zone, inode, zia->freq, zia->enclave_num, zia->buffer_size);
+   enclave* en = new enclave(zia->core, zia->sock_num, inode, zia->freq, zia->enclave_num, zia->buffer_size);
    enclaves[zia->enclave_num] = en;
    return NULL;
 }
@@ -379,10 +377,10 @@ int main(int argc, char **argv) {
 
    // Reset helper thread with appropriate sleep time
    for(int i = 0; i < nb_threads; ++i) {
-      while(enclaves[i]->get_sentinel()->intermed->level < (floor_log_2(d) - 2)){}
+      while(enclaves[i]->get_sentinel()->intermed->level < (floor_log_2(d) - 1)){}
       enclaves[i]->stop_helper();
       enclaves[i]->start_helper(100000);  //1000000
-      printf("  Level of enclave %d: %d\n", i, enclaves[i]->get_sentinel()->intermed->level);
+      printf("  Level of enclave %2d: %d\n", i, enclaves[i]->get_sentinel()->intermed->level);
    }
 
    barrier_init(&barrier, nb_threads + 1);

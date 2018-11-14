@@ -49,11 +49,11 @@ node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next) {
  * @down  - the down inode pointer for the new inode
  * @node  - the node pointer for the new inode
  * @intermed - intermediate layer node
- * @cpu  -  the cpu on which the thread executes
+ * @enclave_id  -  the enclave number
  */
-inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int cpu) {
+inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int enclave_id) {
    inode_t *inode;
-   numa_allocator* local = allocators[cpu];
+   numa_allocator* local = allocators[enclave_id];
    if(base_malloc) {
        inode = (inode_t*)malloc(INODE_SZ);
        inode->right      = right;
@@ -75,11 +75,11 @@ inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int cpu) {
  * @next  - the right mnode pointer for the new mnode
  * @node  - the data layer node for the the new mnode
  * @level - the starting level of the new mnode
- * @cpu  -  the cpu on which the thread executes
+ * @enclave_id  -  the enclave number
  */
-mnode_t* mnode_new(mnode_t* next, node_t* node, unsigned int level, int cpu) {
+mnode_t* mnode_new(mnode_t* next, node_t* node, unsigned int level, int enclave_id) {
    mnode_t* mnode;
-   numa_allocator* local = allocators[cpu];
+   numa_allocator* local = allocators[enclave_id];
    mnode = (mnode_t*)local->nalloc(MNODE_SZ);
    mnode->level   = level;
    mnode->key     = node->key;
@@ -100,20 +100,20 @@ void node_delete(node_t *node) {
 /**
  * inode_delete() - delete an index layer node
  * @inode - the index node to delete
- * @cpu  -  the cpu on which the thread executes
+ * @enclave_id  -  the enclave number
  */
-void inode_delete(inode_t *inode, int cpu) {
-   numa_allocator* local = allocators[cpu];
+void inode_delete(inode_t *inode, int enclave_id) {
+   numa_allocator* local = allocators[enclave_id];
    local->nfree(inode, INODE_SZ);
 }
 
 /**
  * mnode_delete() - delete an intermediate node
  * @mnode - the intermediate node to delete
- * @cpu  -  the cpu on which the thread executes
+ * @enclave_id  -  the enclave number
  */
-void mnode_delete(mnode_t* mnode, int cpu) {
-   numa_allocator* local = allocators[cpu];
+void mnode_delete(mnode_t* mnode, int enclave_id) {
+   numa_allocator* local = allocators[enclave_id];
    local->nfree(mnode, MNODE_SZ);
 }
 

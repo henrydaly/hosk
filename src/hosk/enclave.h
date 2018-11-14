@@ -72,7 +72,7 @@ private:
    op_t*       opbuffer;      // successful local operation array
    int         enclave_num;   // encalve id number
    core_t*     core;          // holds the hardware thread ids of the app and helper thread
-   int         numa_zone;     // NUMA zone on which enclave executes
+   int         socket_num;    // Socket id on which enclave executes
    int         buf_size;      // size of the circular op array
    int         app_idx;       // index of application thread in circular array
    int         hlp_idx;       // index of helper thread in circular array
@@ -90,22 +90,22 @@ public:
    bool        finished;      // represents if helper thread is finished
    bool        reset_index;   // represents when population has completed and index layer should reset
 
-            enclave(int size, core_t* c, int zone, inode_t* sent, int freq, int e_num, int bsz);
-           ~enclave();
-   void     start_helper(int);
-   void     stop_helper(void);
-   void     start_application(app_param* init);
-   app_res* stop_application(void);
-   inode_t* get_sentinel(void);
-   inode_t* set_sentinel(inode_t*);
-   int      get_thread_id(int idx);
-   int      get_numa_zone(void);
-   int      get_enclave_num(void);
-   bool     opbuffer_insert(sl_key_t key, node_t* node);
-   op_t*    opbuffer_remove(op_t** passed);
-   void     populate_begin(init_param* params, int num);
-   uint     populate_end(void);
-   void     reset_index_layer(void);
+               enclave(core_t* c, int sock, inode_t* sent, int freq, int e_num, int bsz);
+              ~enclave();
+   void        start_helper(int);
+   void        stop_helper(void);
+   void        start_application(app_param* init);
+   app_res*    stop_application(void);
+   inode_t*    get_sentinel(void);
+   inode_t*    set_sentinel(inode_t*);
+   int         get_thread_id(int idx);
+   int         get_socket_num(void);
+   int         get_enclave_num(void);
+   bool        opbuffer_insert(sl_key_t key, node_t* node);
+   op_t*       opbuffer_remove(op_t** passed);
+   void        populate_begin(init_param* params, int num);
+   uint        populate_end(void);
+   void        reset_index_layer(void);
 
 
 #ifdef COUNT_TRAVERSAL

@@ -16,10 +16,9 @@
 #include "hardware_layout.h"
 #include "skiplist.h"
 #include "stdio.h"
-//TODO: get rid of passed buffer size
 /* Constructor */
-enclave::enclave(int size, core_t* c, int zone, inode_t* s, int freq, int e_num, int bsz)
- :core(c), numa_zone(zone), sentinel(s), update_freq(freq), buf_size(bsz), enclave_num(e_num)
+enclave::enclave(core_t* c, int sock, inode_t* s, int freq, int e_num, int bsz)
+ :core(c), socket_num(sock), sentinel(s), update_freq(freq), buf_size(bsz), enclave_num(e_num)
 {
    update_seed = rand();
    opbuffer = new op_t[buf_size];
@@ -57,7 +56,6 @@ enclave::~enclave() {
       stop_helper();
       stop_application();
    }
-//   delete opbuffer;
 }
 
 /* start_helper() - starts helper thread */
@@ -115,39 +113,9 @@ int enclave::get_enclave_num(void) {
    return enclave_num;
 }
 
-/* get_numa_zone() - return the enclave's numa_zone */
-int enclave::get_numa_zone(void) {
-   return numa_zone;
-}
-
-/**
- * opbuffer_insert() - attempt to add element to the operation array
- *  NOTE: return false on failure
- * @key  - the key of the updated node
- * @node - the pointer to the updated node (NULL if operation was a remove)
- */
-bool enclave::opbuffer_insert(sl_key_t key, node_t* node) {
-   if((app_idx + 1) % buf_size == hlp_idx) return false;
-//   op_t cur_op = opbuffer[app_idx];
-   opbuffer[app_idx].key = key;
-   opbuffer[app_idx].node = node;
-   app_idx = (app_idx + 1) % buf_size;
-   return true;
-}
-
-/**
- * opbuffer_remove() - attempt to consume element in operation array
- *  the array element is copied by value into the passed element
- *  NOTE: return NULL on failure
- * @passed - the element which will hold the copied array values
- */
-op_t* enclave::opbuffer_remove(op_t** passed) {
-   if((hlp_idx + 1) % buf_size == app_idx || hlp_idx == app_idx) return NULL;
-   op_t cur_element = opbuffer[hlp_idx];
-   (*passed)->key  = cur_element.key;
-   (*passed)->node = cur_element.node;
-   hlp_idx = (hlp_idx + 1) % buf_size;
-   return (*passed);
+/* get_socket_num() - return the enclave's socket id */
+int enclave::get_socket_num(void) {
+   return socket_num;
 }
 
 /* populate_begin() - populates num elements from local enclave */
@@ -166,6 +134,49 @@ uint enclave::populate_end(void) {
 /* reset_index() - resets index layers */
 void enclave::reset_index_layer(void) {
    reset_index = true;
+}
+
+/**
+ * opbuffer_insert() - attempt to add element to the operation array
+ *  NOTE: return false on failure
+ * @key  - the key of the updated node
+ * @node - the pointer to the updated node (NULL if operation was a remove)
+ */
+bool enclave::opbuffer_insert(sl_key_t key, node_t* node) {
+   // First, test if this operation negates the last one
+   //    Okay to test on first insert b/c element default key = 0
+   int old_idx = (app_idx) ? (app_idx - 1) : (buf_size - 1); // Circular buffer wrapping
+   if(key == opbuffer[old_idx].key && node != opbuffer[old_idx].node) {
+      // Regardless of insert/delete, last operation is "undone"
+      app_idx = old_idx;
+      return true;
+   }
+
+   // Do nothing if opbuffer is full
+   if((app_idx + 1) % buf_size == hlp_idx) return false;
+
+   // Regular opbuffer insert
+   opbuffer[app_idx].key   = key;
+   opbuffer[app_idx].node  = node;
+   app_idx = (app_idx + 1) % buf_size;
+   return true;
+}
+
+/**
+ * opbuffer_remove() - attempt to consume element in operation array
+ *  the array element is copied by value into the passed element
+ *  NOTE: return NULL on failure
+ * @passed - the element which will hold the copied array values
+ */
+op_t* enclave::opbuffer_remove(op_t** passed) {
+   // Leave one element untouched in case app thread decides to undo last operation
+   if(app_idx - ((hlp_idx + 1) % buf_size) <= 1) return NULL;
+
+   // Regular opbuffer remove
+   (*passed)->key  = opbuffer[hlp_idx].key;
+   (*passed)->node = opbuffer[hlp_idx].node;
+   hlp_idx = (hlp_idx + 1) % buf_size;
+   return (*passed);
 }
 
 #ifdef BG_STATS

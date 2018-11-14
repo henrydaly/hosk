@@ -166,9 +166,9 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
    inode_t *item, *next_item;
    node_t* ret_node = NULL;
    item = obj->get_sentinel();
-   int this_node = obj->get_numa_zone();
+   int this_socket = obj->get_socket_num();
 #ifdef ADDRESS_CHECKING
-   zone_access_check(this_node, item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+   zone_access_check(this_socket, item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
 #ifdef COUNT_TRAVERSAL
    obj->trav_idx++;
@@ -176,7 +176,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
    while (1) {
       next_item = item->right;
 #ifdef ADDRESS_CHECKING
-      zone_access_check(this_node, next_item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+      zone_access_check(this_socket, next_item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
 #ifdef COUNT_TRAVERSAL
       obj->trav_idx++;
@@ -184,7 +184,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
       if (NULL == next_item || next_item->key > key) {
          next_item = item->down;
 #ifdef ADDRESS_CHECKING
-         zone_access_check(this_node, next_item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+         zone_access_check(this_socket, next_item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
 #ifdef COUNT_TRAVERSAL
          obj->trav_idx++;
@@ -192,7 +192,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
          if (NULL == next_item) {
             ret_node = item->intermed->node;
 #ifdef ADDRESS_CHECKING
-            zone_access_check(this_node, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+            zone_access_check(this_socket, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
 #ifdef COUNT_TRAVERSAL
             obj->trav_idx++;
@@ -202,7 +202,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
       } else if (next_item->key == key) {
          ret_node = item->intermed->node;
 #ifdef ADDRESS_CHECKING
-         zone_access_check(this_node, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+         zone_access_check(this_socket, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
 #ifdef COUNT_TRAVERSAL
          obj->trav_idx++;
@@ -229,7 +229,7 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
    node_t* next = NULL;
    val_t node_val = NULL, next_val = NULL;
    int result = 0;
-   int this_node = obj->get_numa_zone();
+   int this_socket = obj->get_socket_num();
    while (1) {
       while (node == (node_val = node->val)) {
          node = node->prev;
@@ -237,12 +237,12 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
          obj->trav_dat++;
 #endif
 #ifdef ADDRESS_CHECKING
-         zone_access_check(this_node, node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+         zone_access_check(this_socket, node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
       }
       next = node->next;
 #ifdef ADDRESS_CHECKING
-      zone_access_check(this_node, next, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+      zone_access_check(this_socket, next, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
 #ifdef COUNT_TRAVERSAL
    obj->trav_dat++;
