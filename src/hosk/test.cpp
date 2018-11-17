@@ -304,7 +304,7 @@ int main(int argc, char **argv) {
    tinit_args** zargs = (tinit_args**)malloc(nb_threads*sizeof(tinit_args*));
    int sock_id = 0;
    int core_id = 0;
-   int opbuffer_sz = 20000;   // TODO: fix the opbuffer size
+   int opbuffer_sz = 2000000;   // TODO: fix the opbuffer size
    for(int i = 0; i < nb_threads; ++i) {
       tinit_args* zia      = (tinit_args*)malloc(sizeof(tinit_args));
       socket_t cur_sock    = cur_hw->sockets[sock_id];
@@ -339,7 +339,7 @@ int main(int argc, char **argv) {
    // Initial skip list population
    printf("Adding %d entries to set\n", initial);
    for(int i = 0; i < nb_threads; ++i) {
-      enclaves[i]->start_helper(0);
+      enclaves[i]->start_helper(true);
    }
    int add_nodes, successfully_added = 0;
    uint last = 0;
@@ -365,7 +365,7 @@ int main(int argc, char **argv) {
    }
    base_malloc = false;
    for(int k = 0; k < nb_threads; ++k) {
-      enclaves[k]->start_helper(0);
+      enclaves[k]->start_helper(true);
    }
    free(pop_params);
 
@@ -379,8 +379,8 @@ int main(int argc, char **argv) {
    for(int i = 0; i < nb_threads; ++i) {
       while(enclaves[i]->get_sentinel()->intermed->level < (floor_log_2(d) - 1)){}
       enclaves[i]->stop_helper();
-      enclaves[i]->start_helper(100000);  //1000000
-      printf("  Level of enclave %2d: %d\n", i, enclaves[i]->get_sentinel()->intermed->level);
+      enclaves[i]->start_helper(false);
+      //printf("  Level of enclave %2d: %d\n", i, enclaves[i]->get_sentinel()->intermed->level);
    }
 
    barrier_init(&barrier, nb_threads + 1);

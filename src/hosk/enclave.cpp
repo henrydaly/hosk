@@ -29,8 +29,8 @@ enclave::enclave(core_t* c, int sock, inode_t* s, int freq, int e_num, int bsz)
    aparams = NULL;
    iparams = NULL;
    app_idx = hlp_idx = tall_del = non_del = 0;
-   finished = running = reset_index = false;
-   hlpth = appth = sleep_time = num_populate = 0;
+   finished = running = reset_index = populate_init = false;
+   hlpth = appth = num_populate = 0;
 #ifdef COUNT_TRAVERSAL
    trav_idx = trav_dat = total_ops = 0;
 #endif
@@ -59,9 +59,9 @@ enclave::~enclave() {
 }
 
 /* start_helper() - starts helper thread */
-void enclave::start_helper(int ssleep_time) {
+void enclave::start_helper(bool pop_all) {
    if(!running) {
-      sleep_time = ssleep_time;
+      populate_init = pop_all;
       running = true;
       finished = false;
       pthread_create(&hlpth, NULL, helper_loop, (void*)this);
@@ -145,12 +145,12 @@ void enclave::reset_index_layer(void) {
 bool enclave::opbuffer_insert(sl_key_t key, node_t* node) {
    // First, test if this operation negates the last one
    //    Okay to test on first insert b/c element default key = 0
-   int old_idx = (app_idx) ? (app_idx - 1) : (buf_size - 1); // Circular buffer wrapping
-   if(key == opbuffer[old_idx].key && node != opbuffer[old_idx].node) {
-      // Regardless of insert/delete, last operation is "undone"
-      app_idx = old_idx;
-      return true;
-   }
+//   int old_idx = (app_idx) ? (app_idx - 1) : (buf_size - 1); // Circular buffer wrapping
+//   if(key == opbuffer[old_idx].key && node != opbuffer[old_idx].node) {
+//      // Regardless of insert/delete, last operation is "undone"
+//      app_idx = old_idx;
+//      return true;
+//   }
 
    // Do nothing if opbuffer is full
    if((app_idx + 1) % buf_size == hlp_idx) return false;

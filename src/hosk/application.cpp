@@ -211,6 +211,13 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
       }
       item = next_item;
    }
+   while(ret_node->next && ret_node->key <= key) {
+      ret_node = ret_node->next;
+#ifdef COUNT_TRAVERSAL
+      obj->trav_idx++;
+#endif
+   }
+
    return ret_node;
 }
 
@@ -353,7 +360,7 @@ void* application_loop(void* args) {
       last = update_results(otype, lresults, result, key, last, params->alternate);
       if(result && otype != CONTAINS) {
          while(!obj->opbuffer_insert(key, pnode)){
-            printf("Waiting to insert...");
+            printf("Waiting to insert...\n");
             exit(-1);
          }
       }

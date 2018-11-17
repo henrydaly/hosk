@@ -70,7 +70,7 @@ static void bg_trav_mnodes(enclave* obj) {
 #endif
 
    while (NULL != node) {
-      if(bg_mremove(prev, node, obj->get_thread_id(HLP_IDX))) {
+      if(bg_mremove(prev, node, obj->get_enclave_num())) {
          node = prev->next;
       } else {
          if(!node->marked)          { ++obj->non_del; }
@@ -389,7 +389,7 @@ void node_remove(node_t* prev, node_t* node) {
 void* helper_loop(void* args) {
    enclave* obj         = (enclave*)args;
    op_t*    local_job   = new op_t();
-   bool     update_all  = (obj->sleep_time == 0);
+   bool     update_all  = obj->populate_init;
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
@@ -403,7 +403,6 @@ void* helper_loop(void* args) {
 
    while(1) {
       if(obj->finished) break;
-      usleep(obj->sleep_time);
       // Update intermediate layer from op array
       op_t* cur_job = local_job;
       while((cur_job = obj->opbuffer_remove(&cur_job))) {

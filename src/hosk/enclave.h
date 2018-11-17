@@ -86,18 +86,18 @@ public:
    uint        update_seed;   // seed for helper thread random generator
    int         update_freq;   // frequency of index layer updates
    int         num_populate;  // number of elements inserted during initial population
-   int         sleep_time;    // time for helper thread to sleep between loops
    bool        finished;      // represents if helper thread is finished
    bool        reset_index;   // represents when population has completed and index layer should reset
+   bool        populate_init; // represents if the helper thread should populate the index layer every time
 
                enclave(core_t* c, int sock, inode_t* sent, int freq, int e_num, int bsz);
               ~enclave();
-   void        start_helper(int);
+   void        start_helper(bool pop_all);
    void        stop_helper(void);
    void        start_application(app_param* init);
    app_res*    stop_application(void);
    inode_t*    get_sentinel(void);
-   inode_t*    set_sentinel(inode_t*);
+   inode_t*    set_sentinel(inode_t* new_sent);
    int         get_thread_id(int idx);
    int         get_socket_num(void);
    int         get_enclave_num(void);
