@@ -21,18 +21,18 @@ enclave::enclave(core_t* c, int sock, inode_t* s, int freq, int e_num, int bsz)
  :core(c), socket_num(sock), sentinel(s), update_freq(freq), buf_size(bsz), enclave_num(e_num)
 {
    update_seed = rand();
-   opbuffer = new op_t[buf_size];
-   for(int i = 0; i < buf_size; i++) {
-      opbuffer[i].key = 0;
-      opbuffer[i].node = NULL;
-   }
+//   opbuffer = new op_t[buf_size];
+//   for(int i = 0; i < buf_size; i++) {
+//      opbuffer[i].key = 0;
+//      opbuffer[i].node = NULL;
+//   }
    aparams = NULL;
    iparams = NULL;
    app_idx = hlp_idx = tall_del = non_del = 0;
    finished = running = reset_index = populate_init = false;
    hlpth = appth = num_populate = 0;
 #ifdef COUNT_TRAVERSAL
-   trav_idx = trav_dat = total_ops = 0;
+   trav_idx = trav_dat = trav_dat_local = total_ops = 0;
 #endif
 #ifdef BG_STATS
    shadow_stats.loops = 0;
@@ -142,7 +142,7 @@ void enclave::reset_index_layer(void) {
  * @key  - the key of the updated node
  * @node - the pointer to the updated node (NULL if operation was a remove)
  */
-bool enclave::opbuffer_insert(sl_key_t key, node_t* node) {
+//bool enclave::opbuffer_insert(sl_key_t key, node_t* node) {
    // First, test if this operation negates the last one
    //    Okay to test on first insert b/c element default key = 0
 //   int old_idx = (app_idx) ? (app_idx - 1) : (buf_size - 1); // Circular buffer wrapping
@@ -153,14 +153,14 @@ bool enclave::opbuffer_insert(sl_key_t key, node_t* node) {
 //   }
 
    // Do nothing if opbuffer is full
-   if((app_idx + 1) % buf_size == hlp_idx) return false;
-
-   // Regular opbuffer insert
-   opbuffer[app_idx].key   = key;
-   opbuffer[app_idx].node  = node;
-   app_idx = (app_idx + 1) % buf_size;
-   return true;
-}
+//   if((app_idx + 1) % buf_size == hlp_idx) return false;
+//
+//   // Regular opbuffer insert
+//   opbuffer[app_idx].key   = key;
+//   opbuffer[app_idx].node  = node;
+//   app_idx = (app_idx + 1) % buf_size;
+//   return true;
+//}
 
 /**
  * opbuffer_remove() - attempt to consume element in operation array
@@ -168,16 +168,16 @@ bool enclave::opbuffer_insert(sl_key_t key, node_t* node) {
  *  NOTE: return NULL on failure
  * @passed - the element which will hold the copied array values
  */
-op_t* enclave::opbuffer_remove(op_t** passed) {
-   // Leave one element untouched in case app thread decides to undo last operation
-   if(app_idx - ((hlp_idx + 1) % buf_size) <= 1) return NULL;
-
-   // Regular opbuffer remove
-   (*passed)->key  = opbuffer[hlp_idx].key;
-   (*passed)->node = opbuffer[hlp_idx].node;
-   hlp_idx = (hlp_idx + 1) % buf_size;
-   return (*passed);
-}
+//op_t* enclave::opbuffer_remove(op_t** passed) {
+//   // Leave one element untouched in case app thread decides to undo last operation
+//   if(app_idx - ((hlp_idx + 1) % buf_size) <= 1) return NULL;
+//
+//   // Regular opbuffer remove
+//   (*passed)->key  = opbuffer[hlp_idx].key;
+//   (*passed)->node = opbuffer[hlp_idx].node;
+//   hlp_idx = (hlp_idx + 1) % buf_size;
+//   return (*passed);
+//}
 
 #ifdef BG_STATS
 /* bg_stats() - print background statistics */

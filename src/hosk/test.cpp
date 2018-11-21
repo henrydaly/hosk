@@ -57,7 +57,7 @@ struct tinit_args {
    int      enclave_num;
    core_t*  core;
    uint     sock_num;
-   node_t*  node_sentinel;
+   //node_t*  node_sentinel;
    uint     allocator_size;
    uint     freq;
    int      buffer_size;
@@ -70,6 +70,7 @@ pthread_key_t rng_seed_key;
 unsigned int levelmax;
 enclave** enclaves;
 extern numa_allocator** allocators;
+node_t* sentinel_node;
 bool base_malloc = true;
 
 void barrier_init(barrier_t *b, int n) {
@@ -122,8 +123,10 @@ void* thread_init(void* args) {
 
    numa_allocator* na = new numa_allocator(zia->allocator_size);
    allocators[zia->enclave_num] = na;
-   mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, zia->enclave_num);
-   inode_t* inode = inode_new(NULL, NULL, mnode, zia->enclave_num);
+   //mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, zia->enclave_num);
+   node_t*  dnode = node_new(0, NULL, NULL, NULL, NULL);
+   sentinel_node  = dnode;
+   inode_t* inode = inode_new(NULL, NULL, dnode, zia->enclave_num);
    enclave* en = new enclave(zia->core, zia->sock_num, inode, zia->freq, zia->enclave_num, zia->buffer_size);
    enclaves[zia->enclave_num] = en;
    return NULL;
@@ -293,7 +296,7 @@ int main(int argc, char **argv) {
    levelmax = floor_log_2((unsigned int) initial / nb_threads);
 
    // create sentinel node on NUMA zone 0
-   node_t* sentinel_node = node_new(0, NULL, NULL, NULL);
+   //sentinel_node = node_new(0, NULL, NULL, NULL, NULL);
    // HOSK setup
    enclaves = (enclave**)malloc(nb_threads*sizeof(enclave*));
    pthread_t* thds = (pthread_t*)malloc(nb_threads*sizeof(pthread_t));
@@ -308,7 +311,7 @@ int main(int argc, char **argv) {
    for(int i = 0; i < nb_threads; ++i) {
       tinit_args* zia      = (tinit_args*)malloc(sizeof(tinit_args));
       socket_t cur_sock    = cur_hw->sockets[sock_id];
-      zia->node_sentinel   = sentinel_node;
+      //zia->node_sentinel   = sentinel_node;
       zia->allocator_size  = buffer_size;
       zia->buffer_size     = opbuffer_sz;
       zia->core            = &cur_sock.cores[core_id];
@@ -377,7 +380,7 @@ int main(int argc, char **argv) {
 
    // Reset helper thread with appropriate sleep time
    for(int i = 0; i < nb_threads; ++i) {
-      while(enclaves[i]->get_sentinel()->intermed->level < (floor_log_2(d) - 1)){}
+      while(enclaves[i]->get_sentinel()->node->level < (floor_log_2(d) - 1)){}
       enclaves[i]->stop_helper();
       enclaves[i]->start_helper(false);
       //printf("  Level of enclave %2d: %d\n", i, enclaves[i]->get_sentinel()->intermed->level);
@@ -466,23 +469,18 @@ int main(int argc, char **argv) {
       printf("  #upd trials : %lu (%f / s)\n", updates, updates * 1000.0 / duration);
    } else { printf("%lu (%f / s)\n", updates, updates * 1000.0 / duration); }
 #ifdef COUNT_TRAVERSAL
-   uint total_idx_travs = 0, total_dat_travs = 0, total_ops = 0;
-   uint avg_idx_trav = 0, avg_dat_trav = 0;
-   uint tavg_idx_trav = 0, tavg_dat_trav = 0;
+   uint tavg_idx_trav = 0, tavg_dat_local_trav = 0, tavg_dat_trav = 0;
    for(int j = 0; j < nb_threads; ++j) {
-      total_idx_travs += enclaves[j]->trav_idx;
-      total_dat_travs += enclaves[j]->trav_dat;
-      total_ops       += enclaves[j]->total_ops;
-      avg_idx_trav = enclaves[j]->trav_idx / enclaves[j]->total_ops;
-      avg_dat_trav = enclaves[j]->trav_dat / enclaves[j]->total_ops;
-      printf("T %d: IDX Hops: %d, DAT Hops: %d\n", j, avg_idx_trav, avg_dat_trav);
-      tavg_idx_trav += avg_idx_trav;
-      tavg_dat_trav += avg_dat_trav;
+      tavg_idx_trav       += enclaves[j]->trav_idx / enclaves[j]->total_ops;
+      tavg_dat_trav       += enclaves[j]->trav_dat / enclaves[j]->total_ops;
+      tavg_dat_local_trav += enclaves[j]->trav_dat_local / enclaves[j]->total_ops;
    }
-   tavg_idx_trav /= nb_threads;
-   tavg_dat_trav /= nb_threads;
+   tavg_idx_trav       /= nb_threads;
+   tavg_dat_trav       /= nb_threads;
+   tavg_dat_local_trav /= nb_threads;
    printf("Average Index Hops: %d\n", tavg_idx_trav);
    printf("Average Data  Hops: %d\n", tavg_dat_trav);
+   printf("Average Data  Hops: %d\n", tavg_dat_local_trav);
 #endif
 #ifdef ADDRESS_CHECKING
    int app_local = 0;

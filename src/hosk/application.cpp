@@ -119,6 +119,7 @@ static int sl_finish_delete(sl_key_t key, node_t *node, val_t node_val) {
  * @node     - the left node from sl_traverse_data()
  * @node_val - @node value
  * @next     - the right node from sl_traverse_data()
+ * @lnext    - the enclave-local right node
  * @pnode    - passed pointer set to successfully inserted node
  *
  * Returns:
@@ -133,7 +134,7 @@ static int sl_finish_delete(sl_key_t key, node_t *node, val_t node_val) {
  *   fails due to concurrency.
  */
 static int sl_finish_insert(sl_key_t key, val_t val, node_t *node,
-      val_t node_val, node_t *next, node_t** pnode) {
+      val_t node_val, node_t *next, node_t* lnext, node_t** pnode) {
    int result = -1;
    node_t *newNode;
    if (node->key == key) {
@@ -144,7 +145,7 @@ static int sl_finish_insert(sl_key_t key, val_t val, node_t *node,
          }
       } else { result = 0; }
    } else {
-      newNode = node_new(key, val, node, next);
+      newNode = node_new(key, val, node, next, lnext);
       if (CAS(&node->next, next, newNode)) {
          assert (node->next != node);
          if (NULL != next) { next->prev = newNode; } /* safe */
@@ -190,7 +191,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
          obj->trav_idx++;
 #endif
          if (NULL == next_item) {
-            ret_node = item->intermed->node;
+            ret_node = item->node;
 #ifdef ADDRESS_CHECKING
             zone_access_check(this_socket, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
@@ -200,7 +201,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
             break;
          }
       } else if (next_item->key == key) {
-         ret_node = item->intermed->node;
+         ret_node = item->node;
 #ifdef ADDRESS_CHECKING
          zone_access_check(this_socket, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
@@ -211,13 +212,6 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
       }
       item = next_item;
    }
-   while(ret_node->next && ret_node->key <= key) {
-      ret_node = ret_node->next;
-#ifdef COUNT_TRAVERSAL
-      obj->trav_idx++;
-#endif
-   }
-
    return ret_node;
 }
 
@@ -237,6 +231,16 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
    val_t node_val = NULL, next_val = NULL;
    int result = 0;
    int this_socket = obj->get_socket_num();
+
+   // Traverse the enclave-local data layer
+   while(node->lnext && node->lnext->key <= key) {
+      node = node->lnext;
+#ifdef COUNT_TRAVERSAL
+      obj->trav_dat_local++;
+#endif
+   }
+
+   // Now traverse total data layer
    while (1) {
       while (node == (node_val = node->val)) {
          node = node->prev;
@@ -267,7 +271,7 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
          } else if (DELETE == optype) {
             result = sl_finish_delete(key, node, node_val);
          } else if (INSERT == optype) {
-            result = sl_finish_insert(key, val, node, node_val, next, pnode);
+            result = sl_finish_insert(key, val, node, node_val, next, node->lnext, pnode);
          }
          if (-1 != result) break;
          continue;
@@ -358,12 +362,12 @@ void* application_loop(void* args) {
       obj->total_ops++;
 #endif
       last = update_results(otype, lresults, result, key, last, params->alternate);
-      if(result && otype != CONTAINS) {
-         while(!obj->opbuffer_insert(key, pnode)){
-            printf("Waiting to insert...\n");
-            exit(-1);
-         }
-      }
+//      if(result && otype != CONTAINS) {
+//         while(!obj->opbuffer_insert(key, pnode)){
+//            printf("Waiting to insert...\n");
+//            exit(-1);
+//         }
+//      }
       unext = get_unext(params, lresults);
    }
    return lresults;
@@ -391,7 +395,7 @@ void* initial_populate(void* args) {
       if(sl_do_operation(obj, key, INSERT, &pnode)) {
          i++;
          *params->last = key;
-         while(!obj->opbuffer_insert(key, pnode)){}
+         //while(!obj->opbuffer_insert(key, pnode)){}
       }
    }
    return NULL;

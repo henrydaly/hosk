@@ -16,9 +16,9 @@
 numa_allocator** allocators;
 extern bool base_malloc;
 
-#define NODE_SZ   sizeof(node_t)
+#define DNODE_SZ  sizeof(node_t)
 #define INODE_SZ  sizeof(inode_t)
-#define MNODE_SZ  sizeof(mnode_t)
+//#define MNODE_SZ  sizeof(mnode_t)
 
 /* initial_populate serves as a manner in which initial population of the
    index layer (which will be scrapped at end of populate) will not waste
@@ -31,15 +31,18 @@ extern bool base_malloc;
  * @val  - the val for the new node
  * @prev - the prev node pointer for the new node
  * @next - the next node pointer for the new node
+ * @local_next  -  the next node in the local enclave
+ * @enclave_id  -  the enclave number
  */
-node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next) {
+node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next, node_t* local_next, int enclave_id) {
    node_t *node;
-   node = (node_t*)malloc(NODE_SZ);
+   node = (node_t*)allocators[enclave_id]->nalloc(DNODE_SZ);
    node->key   = key;
    node->val   = val;
    node->prev  = prev;
    node->next  = next;
    node->level = 0;
+   node->local_next = local_next;
    return node;
 }
 
@@ -51,22 +54,25 @@ node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next) {
  * @intermed - intermediate layer node
  * @enclave_id  -  the enclave number
  */
-inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int enclave_id) {
+inode_t* inode_new(inode_t *right, inode_t *down, node_t* node, int enclave_id) {
    inode_t *inode;
-   numa_allocator* local = allocators[enclave_id];
    if(base_malloc) {
        inode = (inode_t*)malloc(INODE_SZ);
        inode->right      = right;
        inode->down       = down;
-       inode->intermed   = intermed;
-       inode->key        = intermed->key;
+       inode->node       = node;
+       inode->key        = node->key;
+       //inode->intermed   = intermed;
+       //inode->key        = intermed->key;
        return inode;
    }
-   inode = (inode_t*)local->nalloc(INODE_SZ);
+   inode = (inode_t*)allocators[enclave_id]->nalloc(INODE_SZ);
    inode->right      = right;
    inode->down       = down;
-   inode->intermed   = intermed;
-   inode->key        = intermed->key;
+   inode->node       = node;
+   inode->key        = node->key;
+   //inode->intermed   = intermed;
+   //inode->key        = intermed->key;
    return inode;
 }
 
@@ -77,24 +83,25 @@ inode_t* inode_new(inode_t *right, inode_t *down, mnode_t* intermed, int enclave
  * @level - the starting level of the new mnode
  * @enclave_id  -  the enclave number
  */
-mnode_t* mnode_new(mnode_t* next, node_t* node, unsigned int level, int enclave_id) {
-   mnode_t* mnode;
-   numa_allocator* local = allocators[enclave_id];
-   mnode = (mnode_t*)local->nalloc(MNODE_SZ);
-   mnode->level   = level;
-   mnode->key     = node->key;
-   mnode->next    = next;
-   mnode->marked  = false;
-   mnode->node    = node;
-   return mnode;
-}
+//mnode_t* mnode_new(mnode_t* next, node_t* node, unsigned int level, int enclave_id) {
+//   mnode_t* mnode;
+//   numa_allocator* local = allocators[enclave_id];
+//   mnode = (mnode_t*)local->nalloc(MNODE_SZ);
+//   mnode->level   = level;
+//   mnode->key     = node->key;
+//   mnode->next    = next;
+//   mnode->marked  = false;
+//   mnode->node    = node;
+//   return mnode;
+//}
 
 /**
  * node_delete() - delete a data layer node
  * @node - the node to delete
+ * @enclave_id  -  the enclave number
  */
-void node_delete(node_t *node) {
-   free((void*)node);
+void node_delete(node_t *node, int enclave_id) {
+   allocators[enclave_id]->nfree(node, DNODE_SZ);
 }
 
 /**
@@ -103,8 +110,7 @@ void node_delete(node_t *node) {
  * @enclave_id  -  the enclave number
  */
 void inode_delete(inode_t *inode, int enclave_id) {
-   numa_allocator* local = allocators[enclave_id];
-   local->nfree(inode, INODE_SZ);
+   allocators[enclave_id]->nfree(inode, INODE_SZ);
 }
 
 /**
@@ -112,10 +118,10 @@ void inode_delete(inode_t *inode, int enclave_id) {
  * @mnode - the intermediate node to delete
  * @enclave_id  -  the enclave number
  */
-void mnode_delete(mnode_t* mnode, int enclave_id) {
-   numa_allocator* local = allocators[enclave_id];
-   local->nfree(mnode, MNODE_SZ);
-}
+//void mnode_delete(mnode_t* mnode, int enclave_id) {
+//   numa_allocator* local = allocators[enclave_id];
+//   local->nfree(mnode, MNODE_SZ);
+//}
 
 /**
  * data_layer_size() - returns the size of the data layer
@@ -138,15 +144,15 @@ int data_layer_size(node_t* head, int flag) {
    return size;
 }
 
-int intermed_layer_size(mnode_t* head) {
-   int size = 0;
-   mnode_t* m = head;
-   while(m) {
-      if(!m->marked) size++;
-      m = m->next;
-   }
-   return size;
-}
+//int intermed_layer_size(mnode_t* head) {
+//   int size = 0;
+//   mnode_t* m = head;
+//   while(m) {
+//      if(!m->marked) size++;
+//      m = m->next;
+//   }
+//   return size;
+//}
 
 #ifdef ADDRESS_CHECKING
 /**

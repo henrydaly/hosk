@@ -26,11 +26,11 @@ struct bg_stats {
 
 /* op_t is the element which the enclave's circular array will contain.
    a node value of NULL implies the operation was a remove */
-struct op_t {
-   sl_key_t   key;
-   node_t*    node;
-   op_t():key(0), node(NULL){}
-};
+//struct op_t {
+//   sl_key_t   key;
+//   node_t*    node;
+//   op_t():key(0), node(NULL){}
+//};
 
 /* app_param defines the information passed to an application thread */
 struct app_param {
@@ -69,7 +69,7 @@ private:
    inode_t*    sentinel;      // sentinel node of the index layer
    pthread_t   hlpth;         // helper pthread
    pthread_t   appth;         // application pthread
-   op_t*       opbuffer;      // successful local operation array
+   //op_t*       opbuffer;      // successful local operation array
    int         enclave_num;   // encalve id number
    core_t*     core;          // holds the hardware thread ids of the app and helper thread
    int         socket_num;    // Socket id on which enclave executes
@@ -101,8 +101,8 @@ public:
    int         get_thread_id(int idx);
    int         get_socket_num(void);
    int         get_enclave_num(void);
-   bool        opbuffer_insert(sl_key_t key, node_t* node);
-   op_t*       opbuffer_remove(op_t** passed);
+//   bool        opbuffer_insert(sl_key_t key, node_t* node);
+//   op_t*       opbuffer_remove(op_t** passed);
    void        populate_begin(init_param* params, int num);
    uint        populate_end(void);
    void        reset_index_layer(void);
@@ -110,6 +110,7 @@ public:
 
 #ifdef COUNT_TRAVERSAL
    uint trav_idx;
+   uint trav_dat_local;
    uint trav_dat;
    uint total_ops;
 #endif
