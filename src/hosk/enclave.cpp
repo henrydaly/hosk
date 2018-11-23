@@ -17,8 +17,8 @@
 #include "skiplist.h"
 #include "stdio.h"
 /* Constructor */
-enclave::enclave(core_t* c, int sock, inode_t* s, int freq, int e_num) //, int bsz)
- :core(c), socket_num(sock), sentinel(s), update_freq(freq),enclave_num(e_num) //, buf_size(bsz)
+enclave::enclave(core_t* c, int sock, inode_t* s, int e_num)
+ :core(c), socket_num(sock), sentinel(s), enclave_num(e_num)
 {
    update_seed = rand();
    aparams = NULL;

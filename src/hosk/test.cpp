@@ -43,7 +43,6 @@
 #define DEFAULT_ALTERNATE              0
 #define DEFAULT_EFFECTIVE              1
 #define DEFAULT_UNBALANCED             0
-#define DEFAULT_UPDATE_FREQUENCY       20
 #define MAX_NUMA_ZONES                 numa_max_node() + 1
 #define MIN_NUMA_ZONES                 1
 #define XSTR(s)                        STR(s)
@@ -57,10 +56,7 @@ struct tinit_args {
    int      enclave_num;
    core_t*  core;
    uint     sock_num;
-   //node_t*  node_sentinel;
    uint     allocator_size;
-   uint     freq;
-   //int      buffer_size;
 };
 
 int num_numa_zones = MAX_NUMA_ZONES;
@@ -124,9 +120,10 @@ void* thread_init(void* args) {
 
    numa_allocator* na = new numa_allocator(zia->allocator_size);
    allocators[zia->enclave_num] = na;
-   node_t*  dnode = node_new(0, NULL, NULL, sentinel_node, NULL, NULL, zia->enclave_num);
+   node_t*  dnode = node_new(0, NULL, NULL, sentinel_node, NULL, zia->enclave_num);
+   dnode->level = 1;
    inode_t* inode = inode_new(NULL, NULL, dnode, zia->enclave_num);
-   enclave* en = new enclave(zia->core, zia->sock_num, inode, zia->freq, zia->enclave_num);
+   enclave* en = new enclave(zia->core, zia->sock_num, inode, zia->enclave_num);
    enclaves[zia->enclave_num] = en;
    return NULL;
 }
@@ -168,13 +165,12 @@ int main(int argc, char **argv) {
    int update = DEFAULT_UPDATE;
    int alternate = DEFAULT_ALTERNATE;
    int effective = DEFAULT_EFFECTIVE;
-   uint update_frequency = DEFAULT_UPDATE_FREQUENCY;
    sigset_t block_set;
    struct sl_node *temp;
    int unbalanced = DEFAULT_UNBALANCED;
    while(1) {
       i = 0;
-      c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:U:z:P:y:", long_options, &i);
+      c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:U:z:P:", long_options, &i);
       if(c == -1) break;
       if(c == 0 && long_options[i].flag == 0) { c = long_options[i].val; }
       switch(c) {
@@ -241,9 +237,6 @@ int main(int argc, char **argv) {
          case 'z':
             num_numa_zones = atoi(optarg);
             break;
-         case 'y':
-            update_frequency = atoi(optarg);
-            break;
          case '?':
             printf("Use -h or --help for help\n");
             exit(0);
@@ -276,7 +269,6 @@ int main(int argc, char **argv) {
    printf("Effective    : %d\n", effective);
    printf("Type sizes   : int=%d/long=%d/ptr=%d/word=%d\n", (int)sizeof(int), (int)sizeof(long), (int)sizeof(void *), (int)sizeof(uintptr_t));
    printf("NUMA Zones   : %d\n", num_numa_zones);
-   printf("Update freq  : %d\n", update_frequency);
 
    timeout.tv_sec = duration / 1000;
    timeout.tv_nsec = (duration % 1000) * 1000000;
@@ -295,7 +287,7 @@ int main(int argc, char **argv) {
    levelmax = floor_log_2((unsigned int) initial / nb_threads);
 
    // sentinel node - used for initial population
-   node_t* sn = (node_t*)malloc(sizeof(node_t*));
+   node_t* sn = (node_t*)malloc(sizeof(node_t));
    sn->key = 0;
    sn->val = NULL;
    sn->prev = sn->next = sn->local_next = NULL;

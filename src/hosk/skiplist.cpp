@@ -33,7 +33,7 @@ extern bool base_malloc;
  * @local_next  -  the next node in the local enclave
  * @enclave_id  -  the enclave number
  */
-node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next, node_t* local_prev, node_t* local_next, int enclave_id) {
+node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next, node_t* local_next, int enclave_id) {
    node_t *node;
    node = (node_t*)allocators[enclave_id]->nalloc(DNODE_SZ);
    node->key   = key;
@@ -41,7 +41,6 @@ node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next, node_t* lo
    node->prev  = prev;
    node->next  = next;
    node->level = 0;
-   node->local_prev = local_prev;
    node->local_next = local_next;
    return node;
 }

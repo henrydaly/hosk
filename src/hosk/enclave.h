@@ -82,13 +82,12 @@ public:
    int         non_del;       // # non deleted intermediate nodes
    int         tall_del;      // # deleted intermediate nodes w/ towers above
    uint        update_seed;   // seed for helper thread random generator
-   int         update_freq;   // frequency of index layer updates
    int         num_populate;  // number of elements inserted during initial population
    bool        finished;      // represents if helper thread is finished
    bool        reset_index;   // represents when population has completed and index layer should reset
    int         sleep_time;    // helper thread sleep time
 
-               enclave(core_t* c, int sock, inode_t* sent, int freq, int e_num);//, int bsz);
+               enclave(core_t* c, int sock, inode_t* sent, int e_num);
               ~enclave();
    void        start_helper(int ssleep_time);
    void        stop_helper(void);
@@ -129,7 +128,7 @@ void* initial_populate(void* args);
 void* application_loop(void* args);
 void* helper_loop(void* args);
 void  reset_node_levels(node_t* node);
-void  node_remove(node_t* prev, node_t* node, int enclave_id);
+void  node_remove(node_t* local_prev, node_t* node, int enclave_id);
 void  barrier_init(barrier_t *b, int n);
 void  barrier_cross(barrier_t *b);
 #endif

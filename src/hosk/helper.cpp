@@ -25,22 +25,23 @@
 
 /**
  * node_remove() - attempts to remove a node from the data layer
- * @prev - the node before the node to be deleted
+ * @local_prev - the thread-local node before the node to be deleted
  * @node - the node we are attempting to delete
  * @enclave_id -  enclave
  */
-void node_remove(node_t* prev, node_t* node, int enclave_id) {
+void node_remove(node_t* local_prev, node_t* node, int enclave_id) {
    node_t *ptr, *insert;
+   node_t* prev = node->prev;
    assert(prev);
    assert(node);
+   assert(prev->next == node);
+   node_t* local_next = node->local_next;
 
    if(node->val != node || node->key == 0) return;
    ptr = node->next;
    while(!ptr || ptr->key != 0) {
       // use key = 0 as marker for node to delete
-      node_t* lnext = node->local_next;
-      node_t* lprev = lnext->local_prev;
-      insert = node_new(0, NULL, node, ptr, lprev, lnext, enclave_id);
+      insert = node_new(0, NULL, node, ptr, local_next, enclave_id);
       insert->val = insert;
       CAS(&node->next, ptr, insert);
 
@@ -49,12 +50,17 @@ void node_remove(node_t* prev, node_t* node, int enclave_id) {
    }
    // ensure if key == 0 that it has a previous (so don't count sentinel)
    if(prev->next != node || (prev->key == 0 && prev->prev)) return;
-   CAS(&prev->next, node, ptr->next);
+   node_t* new_next = ptr->next;
+   CAS(&prev->next, node, new_next);
    assert(prev->next != prev);
+   if(prev->next == new_next) { // On success, update pointers
+      if(new_next){ new_next->prev = prev; }
+      local_prev->next = local_next;
+   }
 }
 
 /**
- * bg_remove() - start the node physical removal
+ * bg_remove() - start the node physical removal (thread-local)
  * @prev  - the node before the one to remove
  * @mnode - the node to remove
  * @enclave_id -  enclave
@@ -107,7 +113,7 @@ static int bg_raise_nlevel(inode_t* inode, int enclave_id) {
    assert(NULL != inode);
 
    prev = inode->node;
-   node = node->local_next;
+   node = prev->local_next;
    if (NULL == node) return 0;
 
    next = node->local_next;
@@ -201,8 +207,6 @@ void bg_lower_ilevel(inode_t *new_low, int enclave_id) {
    while (NULL != new_low) {
       new_low->down = NULL;
       --new_low->node->level;
-      // TODO: level considerations
-      //if(new_low->intermed->node->level > 0) { --new_low->intermed->node->level; }
       new_low = new_low->right;
    }
 
@@ -220,6 +224,10 @@ void bg_lower_ilevel(inode_t *new_low, int enclave_id) {
  */
 void* helper_loop(void* args) {
    enclave* obj         = (enclave*)args;
+   int enclave_id = obj->get_enclave_num();
+   inode_t* sentinel = obj->get_sentinel();
+   inode_t *inode, *inew;
+   inode_t *inodes[MAX_LEVELS];
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
@@ -228,7 +236,8 @@ void* helper_loop(void* args) {
 
    if(obj->reset_index) {
       obj->reset_index = false;
-      obj->set_sentinel(inode_new(NULL, NULL, obj->get_sentinel()->node, obj->get_enclave_num()));
+      sentinel = obj->set_sentinel(inode_new(NULL, NULL, obj->get_sentinel()->node, obj->get_enclave_num()));
+      sentinel->node->level = 1;
    }
 
    while(1) {
@@ -237,10 +246,6 @@ void* helper_loop(void* args) {
 
       int non_deleted = 0;
       int tall_deleted = 0;
-      inode_t* sentinel = obj->get_sentinel();
-      inode_t *inode, *inew;
-      inode_t *inodes[MAX_LEVELS];
-      int enclave_id = obj->get_enclave_num();
       int raised = 0; /* keep track of if we raised index level */
       int threshold;  /* for testing if we should lower index level */
       int i;
