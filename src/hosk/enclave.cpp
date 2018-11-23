@@ -17,20 +17,15 @@
 #include "skiplist.h"
 #include "stdio.h"
 /* Constructor */
-enclave::enclave(core_t* c, int sock, inode_t* s, int freq, int e_num, int bsz)
- :core(c), socket_num(sock), sentinel(s), update_freq(freq), buf_size(bsz), enclave_num(e_num)
+enclave::enclave(core_t* c, int sock, inode_t* s, int freq, int e_num) //, int bsz)
+ :core(c), socket_num(sock), sentinel(s), update_freq(freq),enclave_num(e_num) //, buf_size(bsz)
 {
    update_seed = rand();
-//   opbuffer = new op_t[buf_size];
-//   for(int i = 0; i < buf_size; i++) {
-//      opbuffer[i].key = 0;
-//      opbuffer[i].node = NULL;
-//   }
    aparams = NULL;
    iparams = NULL;
    app_idx = hlp_idx = tall_del = non_del = 0;
-   finished = running = reset_index = populate_init = false;
-   hlpth = appth = num_populate = 0;
+   finished = running = reset_index = false;
+   hlpth = appth = num_populate = sleep_time = 0;
 #ifdef COUNT_TRAVERSAL
    trav_idx = trav_dat = trav_dat_local = total_ops = 0;
 #endif
@@ -59,9 +54,9 @@ enclave::~enclave() {
 }
 
 /* start_helper() - starts helper thread */
-void enclave::start_helper(bool pop_all) {
+void enclave::start_helper(int ssleep_time) {
    if(!running) {
-      populate_init = pop_all;
+      sleep_time = ssleep_time;
       running = true;
       finished = false;
       pthread_create(&hlpth, NULL, helper_loop, (void*)this);
@@ -135,49 +130,6 @@ uint enclave::populate_end(void) {
 void enclave::reset_index_layer(void) {
    reset_index = true;
 }
-
-/**
- * opbuffer_insert() - attempt to add element to the operation array
- *  NOTE: return false on failure
- * @key  - the key of the updated node
- * @node - the pointer to the updated node (NULL if operation was a remove)
- */
-//bool enclave::opbuffer_insert(sl_key_t key, node_t* node) {
-   // First, test if this operation negates the last one
-   //    Okay to test on first insert b/c element default key = 0
-//   int old_idx = (app_idx) ? (app_idx - 1) : (buf_size - 1); // Circular buffer wrapping
-//   if(key == opbuffer[old_idx].key && node != opbuffer[old_idx].node) {
-//      // Regardless of insert/delete, last operation is "undone"
-//      app_idx = old_idx;
-//      return true;
-//   }
-
-   // Do nothing if opbuffer is full
-//   if((app_idx + 1) % buf_size == hlp_idx) return false;
-//
-//   // Regular opbuffer insert
-//   opbuffer[app_idx].key   = key;
-//   opbuffer[app_idx].node  = node;
-//   app_idx = (app_idx + 1) % buf_size;
-//   return true;
-//}
-
-/**
- * opbuffer_remove() - attempt to consume element in operation array
- *  the array element is copied by value into the passed element
- *  NOTE: return NULL on failure
- * @passed - the element which will hold the copied array values
- */
-//op_t* enclave::opbuffer_remove(op_t** passed) {
-//   // Leave one element untouched in case app thread decides to undo last operation
-//   if(app_idx - ((hlp_idx + 1) % buf_size) <= 1) return NULL;
-//
-//   // Regular opbuffer remove
-//   (*passed)->key  = opbuffer[hlp_idx].key;
-//   (*passed)->node = opbuffer[hlp_idx].node;
-//   hlp_idx = (hlp_idx + 1) % buf_size;
-//   return (*passed);
-//}
 
 #ifdef BG_STATS
 /* bg_stats() - print background statistics */

@@ -24,6 +24,7 @@ typedef unsigned int uint;
 struct sl_node {
    struct sl_node*   prev;
    struct sl_node*   next;
+   struct sl_node*   local_prev;
    struct sl_node*   local_next;
    val_t             val;
    sl_key_t          key;
@@ -35,33 +36,18 @@ struct sl_inode {
    struct sl_inode*  right;
    struct sl_inode*  down;
    struct sl_node*   node;
-//   struct sl_mnode*  intermed;
    sl_key_t          key;
 };
 
-///* intermediate layer nodes */
-//struct sl_mnode {
-//   struct sl_mnode*  next;
-//   struct sl_node*   node;
-//   sl_key_t          key;
-//   unsigned int      level;
-//   bool              marked;
-//};
-
 typedef VOLATILE struct sl_node  node_t;
 typedef VOLATILE struct sl_inode inode_t;
-//typedef VOLATILE struct sl_mnode mnode_t;
 
-node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next, node_t* local_next);
-inode_t* inode_new(inode_t *right, inode_t *down, node_t* node, int cpu);
-//mnode_t* mnode_new(mnode_t* next, node_t* node, unsigned int level, int cpu);
+node_t*  node_new(sl_key_t key, val_t val, node_t *prev, node_t *next, node_t* local_prev, node_t* local_next, int enclave_id);
+inode_t* inode_new(inode_t *right, inode_t *down, node_t* node, int enclave_id);
 
-void node_delete(node_t *node);
-void inode_delete(inode_t *inode, int cpu);
-//void mnode_delete(mnode_t* mnode, int cpu);
+void node_delete(node_t *node, int enclave_id);
+void inode_delete(inode_t *inode, int enclave_id);
 int data_layer_size(node_t* head, int flag);
-//int intermed_layer_size(mnode_t* head);
-
 
 #ifdef ADDRESS_CHECKING
    int check_addr(int supposed_node, void* addr);

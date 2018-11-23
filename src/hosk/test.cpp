@@ -60,7 +60,7 @@ struct tinit_args {
    //node_t*  node_sentinel;
    uint     allocator_size;
    uint     freq;
-   int      buffer_size;
+   //int      buffer_size;
 };
 
 int num_numa_zones = MAX_NUMA_ZONES;
@@ -69,6 +69,7 @@ unsigned int global_seed;
 pthread_key_t rng_seed_key;
 unsigned int levelmax;
 enclave** enclaves;
+tinit_args** zargs;
 extern numa_allocator** allocators;
 node_t* sentinel_node;
 bool base_malloc = true;
@@ -123,11 +124,9 @@ void* thread_init(void* args) {
 
    numa_allocator* na = new numa_allocator(zia->allocator_size);
    allocators[zia->enclave_num] = na;
-   //mnode_t* mnode = mnode_new(NULL, zia->node_sentinel, 1, zia->enclave_num);
-   node_t*  dnode = node_new(0, NULL, NULL, NULL, NULL);
-   sentinel_node  = dnode;
+   node_t*  dnode = node_new(0, NULL, NULL, sentinel_node, NULL, NULL, zia->enclave_num);
    inode_t* inode = inode_new(NULL, NULL, dnode, zia->enclave_num);
-   enclave* en = new enclave(zia->core, zia->sock_num, inode, zia->freq, zia->enclave_num, zia->buffer_size);
+   enclave* en = new enclave(zia->core, zia->sock_num, inode, zia->freq, zia->enclave_num);
    enclaves[zia->enclave_num] = en;
    return NULL;
 }
@@ -295,25 +294,27 @@ int main(int argc, char **argv) {
    else           { srand(seed); }
    levelmax = floor_log_2((unsigned int) initial / nb_threads);
 
-   // create sentinel node on NUMA zone 0
-   //sentinel_node = node_new(0, NULL, NULL, NULL, NULL);
+   // sentinel node - used for initial population
+   node_t* sn = (node_t*)malloc(sizeof(node_t*));
+   sn->key = 0;
+   sn->val = NULL;
+   sn->prev = sn->next = sn->local_next = NULL;
+   sn->level = 0;
+   sentinel_node = sn;
    // HOSK setup
-   enclaves = (enclave**)malloc(nb_threads*sizeof(enclave*));
-   pthread_t* thds = (pthread_t*)malloc(nb_threads*sizeof(pthread_t));
+   enclaves        =   (enclave**)malloc(nb_threads*sizeof(enclave*));
+   pthread_t* thds =  (pthread_t*)malloc(nb_threads*sizeof(pthread_t));
+   zargs           =(tinit_args**)malloc(nb_threads*sizeof(tinit_args*));
    allocators = (numa_allocator**)malloc(nb_threads*sizeof(numa_allocator*));
    unsigned num_expected_nodes = (unsigned)((2 * initial * (1.0 + (update/100.0))) / nb_threads);
    unsigned buffer_size = CACHE_LINE_SIZE * num_expected_nodes;
 
-   tinit_args** zargs = (tinit_args**)malloc(nb_threads*sizeof(tinit_args*));
    int sock_id = 0;
    int core_id = 0;
-   int opbuffer_sz = 2000000;   // TODO: fix the opbuffer size
    for(int i = 0; i < nb_threads; ++i) {
       tinit_args* zia      = (tinit_args*)malloc(sizeof(tinit_args));
       socket_t cur_sock    = cur_hw->sockets[sock_id];
-      //zia->node_sentinel   = sentinel_node;
       zia->allocator_size  = buffer_size;
-      zia->buffer_size     = opbuffer_sz;
       zia->core            = &cur_sock.cores[core_id];
       zia->sock_num        = sock_id;
       zia->enclave_num     = i;
@@ -330,7 +331,7 @@ int main(int argc, char **argv) {
       free(zargs[i]);
    }
    free(thds);
-
+   //free(zargs);
    stop = 0;
    global_seed = rand();
    if (pthread_key_create(&rng_seed_key, NULL) != 0) {
@@ -342,7 +343,7 @@ int main(int argc, char **argv) {
    // Initial skip list population
    printf("Adding %d entries to set\n", initial);
    for(int i = 0; i < nb_threads; ++i) {
-      enclaves[i]->start_helper(true);
+      enclaves[i]->start_helper(0);
    }
    int add_nodes, successfully_added = 0;
    uint last = 0;
@@ -364,11 +365,12 @@ int main(int argc, char **argv) {
    for(int k = 0; k < nb_threads; ++k) {
       last = enclaves[k]->populate_end();
       enclaves[k]->stop_helper();
-      enclaves[k]->reset_index_layer();
    }
    base_malloc = false;
+   reset_node_levels(sentinel_node);
    for(int k = 0; k < nb_threads; ++k) {
-      enclaves[k]->start_helper(true);
+      enclaves[k]->reset_index_layer();
+      enclaves[k]->start_helper(0);
    }
    free(pop_params);
 
@@ -376,14 +378,12 @@ int main(int argc, char **argv) {
    printf("Set size     : %d\n", size);
    printf("Level max    : %d\n", levelmax);
 
-   // nullify index nodes to rebalance sl (deprecated)
-
    // Reset helper thread with appropriate sleep time
    for(int i = 0; i < nb_threads; ++i) {
       while(enclaves[i]->get_sentinel()->node->level < (floor_log_2(d) - 1)){}
       enclaves[i]->stop_helper();
-      enclaves[i]->start_helper(false);
-      //printf("  Level of enclave %2d: %d\n", i, enclaves[i]->get_sentinel()->intermed->level);
+      enclaves[i]->start_helper(100000);
+      //printf("  Level of enclave %2d: %d\n", i, enclaves[i]->get_sentinel()->node->level);
    }
 
    barrier_init(&barrier, nb_threads + 1);
@@ -509,6 +509,7 @@ int main(int argc, char **argv) {
       delete allocators[i];
    }
    free_hardware_layout(cur_hw);
+   free(sn);
    free(threads);
    free(data);
    free(allocators);

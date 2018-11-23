@@ -69,11 +69,9 @@ private:
    inode_t*    sentinel;      // sentinel node of the index layer
    pthread_t   hlpth;         // helper pthread
    pthread_t   appth;         // application pthread
-   //op_t*       opbuffer;      // successful local operation array
    int         enclave_num;   // encalve id number
    core_t*     core;          // holds the hardware thread ids of the app and helper thread
    int         socket_num;    // Socket id on which enclave executes
-   int         buf_size;      // size of the circular op array
    int         app_idx;       // index of application thread in circular array
    int         hlp_idx;       // index of helper thread in circular array
    bool        running;       // represents if helper thread is running
@@ -88,11 +86,11 @@ public:
    int         num_populate;  // number of elements inserted during initial population
    bool        finished;      // represents if helper thread is finished
    bool        reset_index;   // represents when population has completed and index layer should reset
-   bool        populate_init; // represents if the helper thread should populate the index layer every time
+   int         sleep_time;    // helper thread sleep time
 
-               enclave(core_t* c, int sock, inode_t* sent, int freq, int e_num, int bsz);
+               enclave(core_t* c, int sock, inode_t* sent, int freq, int e_num);//, int bsz);
               ~enclave();
-   void        start_helper(bool pop_all);
+   void        start_helper(int ssleep_time);
    void        stop_helper(void);
    void        start_application(app_param* init);
    app_res*    stop_application(void);
@@ -101,8 +99,6 @@ public:
    int         get_thread_id(int idx);
    int         get_socket_num(void);
    int         get_enclave_num(void);
-//   bool        opbuffer_insert(sl_key_t key, node_t* node);
-//   op_t*       opbuffer_remove(op_t** passed);
    void        populate_begin(init_param* params, int num);
    uint        populate_end(void);
    void        reset_index_layer(void);
@@ -132,7 +128,8 @@ public:
 void* initial_populate(void* args);
 void* application_loop(void* args);
 void* helper_loop(void* args);
-void  node_remove(node_t* prev, node_t* node);
+void  reset_node_levels(node_t* node);
+void  node_remove(node_t* prev, node_t* node, int enclave_id);
 void  barrier_init(barrier_t *b, int n);
 void  barrier_cross(barrier_t *b);
 #endif

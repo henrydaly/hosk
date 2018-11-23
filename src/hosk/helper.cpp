@@ -23,61 +23,72 @@
 #include "enclave.h"
 #include "skiplist.h"
 
-void reset_index(enclave* obj) {
-   mnode_t* node = obj->get_sentinel()->intermed;
-   node->level = node->node->level = 1;
-   mnode_t* next = node->next;
-   while(next != NULL) {
-      next->level = next->node->level = 0;
-      next = next->next;
-   }
-   obj->set_sentinel(inode_new(NULL, NULL, obj->get_sentinel()->intermed, obj->get_enclave_num()));
-}
-
-
 /**
- * bg_mremove - starts the physical removal of @mnode
- * @prev  - the node before the one to remove
- * @mnode - the node to finish removing
- * @enclave_id  - enclave
- * returns 1 if deleted, 0 if not
- *
- * Note: since this operates on the intermediate layer alone,
- * no synchronization techniques are needed
+ * node_remove() - attempts to remove a node from the data layer
+ * @prev - the node before the node to be deleted
+ * @node - the node we are attempting to delete
+ * @enclave_id -  enclave
  */
-int bg_mremove(mnode_t* prev, mnode_t* mnode, int enclave_id) {
-   int result = 0;
+void node_remove(node_t* prev, node_t* node, int enclave_id) {
+   node_t *ptr, *insert;
    assert(prev);
-   assert(mnode);
-   if(mnode->level == 0 && mnode->marked) {
-      prev->next = mnode->next;
-      mnode_delete(mnode, enclave_id);
-      result = 1;
+   assert(node);
+
+   if(node->val != node || node->key == 0) return;
+   ptr = node->next;
+   while(!ptr || ptr->key != 0) {
+      // use key = 0 as marker for node to delete
+      node_t* lnext = node->local_next;
+      node_t* lprev = lnext->local_prev;
+      insert = node_new(0, NULL, node, ptr, lprev, lnext, enclave_id);
+      insert->val = insert;
+      CAS(&node->next, ptr, insert);
+
+      assert(node->next != node);
+      ptr = node->next; // ptr == insert
    }
-   return result;
+   // ensure if key == 0 that it has a previous (so don't count sentinel)
+   if(prev->next != node || (prev->key == 0 && prev->prev)) return;
+   CAS(&prev->next, node, ptr->next);
+   assert(prev->next != prev);
 }
 
 /**
- * bg_trav_mnodes - traverse intermediate nodes and remove if possible
+ * bg_remove() - start the node physical removal
+ * @prev  - the node before the one to remove
+ * @mnode - the node to remove
+ * @enclave_id -  enclave
+ * returns 1 if deleted, 0 if not
+ */
+void bg_remove(node_t* prev, node_t* node, int enclave_id) {
+   if(node->level == 0 && node->val == NULL) {
+      // Only remove short nodes
+      CAS(&node->val, NULL, node);
+      if(node->val == node) {
+         node_remove(prev, node, enclave_id);
+      }
+   }
+}
+
+/**
+ * bg_trav_nodes - traverse enclave-local nodes and remove if possible
  * @obj - the enclave object for reference
  */
-static void bg_trav_mnodes(enclave* obj) {
-   mnode_t* prev = obj->get_sentinel()->intermed;
-   mnode_t* node = prev->next;
+static void bg_trav_nodes(enclave* obj) {
+   node_t* prev   = obj->get_sentinel()->node;
+   node_t* node   = prev->local_next;
+   int enclave_id = obj->get_enclave_num();
 #ifdef ADDRESS_CHECKING
    zone_access_check(zone, prev, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
    zone_access_check(zone, node, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
 #endif
 
    while (NULL != node) {
-      if(bg_mremove(prev, node, obj->get_enclave_num())) {
-         node = prev->next;
-      } else {
-         if(!node->marked)          { ++obj->non_del; }
-         else if (node->level >= 1) { ++obj->tall_del; }
-         prev = node;
-         node = node->next;
-      }
+      bg_remove(prev, node, enclave_id);
+      if(NULL != node->val && node != node->val) { ++obj->non_del; }
+      else if (node->level >= 1)                 { ++obj->tall_del; }
+      prev = node;
+      node = node->local_next;
 #ifdef ADDRESS_CHECKING
       zone_access_check(zone, node, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
 #endif
@@ -85,96 +96,29 @@ static void bg_trav_mnodes(enclave* obj) {
 }
 
 /**
- * update_intermediate_layer() - updates intermediate layer from local op array
- * @obj - enclave object for reference
- * @job - operation to publish to the intermediate layer
- */
-void update_intermediate_layer(enclave* obj, op_t* job) {
-   int      enclave_id      = obj->get_enclave_num();
-   sl_key_t test_key = job->key;
-   inode_t* item     = obj->get_sentinel();
-#ifdef ADDRESS_CHECKING
-   zone_access_check(numa_zone, item, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
-#endif
-   inode_t* next_item = NULL;
-   mnode_t *mnode, *next;
-
-   // index layer traversal
-   while(1) {
-      next_item = item->right;
-#ifdef ADDRESS_CHECKING
-      zone_access_check(numa_zone, next_item, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
-#endif
-      if (NULL == next_item || next_item->key > test_key) {
-         next_item = item->down;
-#ifdef ADDRESS_CHECKING
-         zone_access_check(numa_zone, next_item, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
-#endif
-         if(NULL == next_item) {
-            mnode = item->intermed;
-#ifdef ADDRESS_CHECKING
-            zone_access_check(numa_zone, mnode, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
-#endif
-            break;
-         }
-      } else if (next_item->key == test_key) {
-         mnode = item->intermed;
-#ifdef ADDRESS_CHECKING
-         zone_access_check(numa_zone, mnode, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
-#endif
-         break;
-      }
-      item = next_item;
-   }
-
-   // intermediate layer traversal and actual update
-   while(1) {
-      next = mnode->next;
-#ifdef ADDRESS_CHECKING
-      zone_access_check(numa_zone, next, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
-#endif
-      if(!next || next->key > test_key) {
-         // if node pointer is not NULL, we know it's an insert
-         if(job->node != NULL) {
-            if(mnode->key == test_key) {
-               if(mnode->marked) { mnode->marked = false; }
-            } else {
-               mnode->next = mnode_new(next, job->node, 0, enclave_id);
-            }
-         } else {
-            if(mnode->key == test_key) { mnode->marked = true; }
-         }
-         break;
-      }
-      mnode = next;
-   }
-}
-
-/**
- * bg_raise_mlevel - raise intermediate nodes into index levels
- * @mnode - starting intermediate node
+ * bg_raise_nlevel - raise level 0 nodes into index levels
  * @inode - starting index node at bottom layer
  * @enclave_id - enclave */
-static int bg_raise_mlevel(mnode_t* mnode, inode_t* inode, int enclave_id) {
+static int bg_raise_nlevel(inode_t* inode, int enclave_id) {
    int raised = 0;
-   mnode_t *prev, *node, *next;
+   node_t *prev, *node, *next;
    inode_t *inew, *above, *above_prev;
    above = above_prev = inode;
    assert(NULL != inode);
 
-   prev = mnode;
-   node = mnode->next;
+   prev = inode->node;
+   node = node->local_next;
    if (NULL == node) return 0;
 
-   next = node->next;
+   next = node->local_next;
    while (NULL != next) {
       /* don't raise deleted nodes */
-      if (!mnode->marked) {
+      if (node != node->val) {
          if (((prev->level == 0) && (node->level == 0)) && (next->level == 0)) {
             raised = 1;
 
             /* get the correct index above and behind */
-            while (above && above->intermed->key < node->key) {
+            while (above && above->node->key < node->key) {
                above = above->right;
                if (above != inode->right) { above_prev = above_prev->right; }
             }
@@ -183,13 +127,12 @@ static int bg_raise_mlevel(mnode_t* mnode, inode_t* inode, int enclave_id) {
             inew = inode_new(above_prev->right, NULL, node, enclave_id);
             above_prev->right = inew;
             node->level = 1;
-            if(node->node->level < 1){ node->node->level = 1; }
             above_prev = inode = above = inew;
          }
       }
       prev = node;
       node = next;
-      next = next->next;
+      next = next->local_next;
    }
    return raised;
 }
@@ -212,7 +155,7 @@ static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int 
 
    index = iprev->right;
    while ((NULL != index) && (NULL != (inext = index->right))) {
-      while (index->intermed->marked) {
+      while (index->node->val == index->node) {
          /* skip deleted nodes */
          iprev->right = inext;
          if (NULL == inext) break;
@@ -220,24 +163,21 @@ static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int 
          inext = inext->right;
       }
       if (NULL == inext) break;
-      if (((iprev->intermed->level <= height) &&
-          (index->intermed->level <= height)) &&
-          (inext->intermed->level <= height)) {
+      if (((iprev->node->level <= height) &&
+          (index->node->level <= height)) &&
+          (inext->node->level <= height)) {
 
          raised = 1;
 
          /* get the correct index above and behind */
-         while (above && above->intermed->key < index->intermed->key) {
+         while (above && above->node->key < index->node->key) {
             above = above->right;
             if (above != iprev_tall->right) { above_prev = above_prev->right; }
          }
 
-         inew = inode_new(above_prev->right, index, index->intermed, enclave_id);
+         inew = inode_new(above_prev->right, index, index->node, enclave_id);
          above_prev->right = inew;
-         index->intermed->level = height + 1;
-         if(index->intermed->node->level < height + 1) {
-            index->intermed->node->level = height + 1;
-         }
+         index->node->level = height + 1;
          above_prev = above = iprev_tall = inew;
       }
       iprev = index;
@@ -260,8 +200,9 @@ void bg_lower_ilevel(inode_t *new_low, int enclave_id) {
    /* remove the lowest index level */
    while (NULL != new_low) {
       new_low->down = NULL;
-      --new_low->intermed->level;
-      if(new_low->intermed->node->level > 0) { --new_low->intermed->node->level; }
+      --new_low->node->level;
+      // TODO: level considerations
+      //if(new_low->intermed->node->level > 0) { --new_low->intermed->node->level; }
       new_low = new_low->right;
    }
 
@@ -274,122 +215,11 @@ void bg_lower_ilevel(inode_t *new_low, int enclave_id) {
 }
 
 /**
- *  update_index_layer() - updates the index layer based on the local intermediate layer
- *  @obj - the enclave object
- */
-void update_index_layer(enclave* obj) {
-   inode_t* sentinel = obj->get_sentinel();
-   inode_t *inode, *inew;
-   inode_t *inodes[MAX_LEVELS];
-   int enclave_id = obj->get_enclave_num();
-   int raised = 0; /* keep track of if we raised index level */
-   int threshold;  /* for testing if we should lower index level */
-   int i;
-   int non_deleted = 0;
-   int tall_deleted = 0;
-   for (i = 0; i < MAX_LEVELS; i++) {
-      inodes[i] = NULL;
-   }
-
-   // traverse the intermediate layer and do physical deletes
-   bg_trav_mnodes(obj);
-
-   assert(sentinel->intermed->level < MAX_LEVELS);
-
-   /* get the first index node at each level */
-   inode = sentinel;
-   for (i = sentinel->intermed->level - 1; i >= 0; i--) {
-      inodes[i] = inode;
-      assert(NULL != inodes[i]);
-      inode = inode->down;
-   }
-   assert(NULL == inode);
-
-   // raise bottom level nodes
-   raised = bg_raise_mlevel(inodes[0]->intermed, inodes[0], enclave_id);
-
-   if (raised && (1 == sentinel->intermed->level)) {
-      /* add a new index level */
-      sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->intermed, enclave_id));
-
-      ++sentinel->intermed->level;
-      if(sentinel->intermed->node->level < sentinel->intermed->level) {
-         sentinel->intermed->node->level = sentinel->intermed->level;
-      }
-      assert(NULL == inodes[1]);
-      inodes[1] = sentinel;
-      #ifdef BG_STATS
-      ++obj->shadow_stats.raises;
-      #endif
-   }
-
-   // raise the index level nodes
-   for (i = 0; i < (sentinel->intermed->level - 1); i++) {
-      assert(i < MAX_LEVELS-1);
-      raised = bg_raise_ilevel(inodes[i],    // level raised
-                              inodes[i + 1], // level above
-                              i + 1,         // current height
-                              enclave_id);
-   }
-
-   if (raised) {
-      // add a new index level
-      sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->intermed, enclave_id));
-      ++sentinel->intermed->level;
-      if(sentinel->intermed->node->level < sentinel->intermed->level) {
-         sentinel->intermed->node->level = sentinel->intermed->level;
-      }
-      #ifdef BG_STATS
-      ++obj->shadow_stats.raises;
-      #endif
-   }
-
-   // if needed, remove the lowest index level
-   if (obj->tall_del > obj->non_del * 10) {
-      if (NULL != inodes[1]) {
-         bg_lower_ilevel(inodes[1], enclave_id); // level above
-         #ifdef BG_STATS
-         ++obj->shadow_stats.lowers;
-         #endif
-      }
-   }
-}
-
-/**
- * node_remove() - attempts to remove a node from the data layer
- * @prev - the node before the node to be deleted
- * @node - the node we are attempting to delete
- */
-void node_remove(node_t* prev, node_t* node) {
-   node_t *ptr, *insert;
-   assert(prev);
-   assert(node);
-
-   if(node->val != node || node->key == 0) return;
-   ptr = node->next;
-   while(!ptr || ptr->key != 0) {
-      // use key = 0 as marker for node to delete
-      insert = node_new(0, NULL, node, ptr);
-      insert->val = insert;
-      CAS(&node->next, ptr, insert);
-
-      assert(node->next != node);
-      ptr = node->next; // ptr == insert
-   }
-   // ensure if key == 0 that it has a previous (so don't count sentinel)
-   if(prev->next != node || (prev->key == 0 && prev->prev)) return;
-   CAS(&prev->next, node, ptr->next);
-   assert(prev->next != prev);
-}
-
-/**
  * helper_loop() - defines the execution flow of the helper thread in each enclave
  * @args - the enclave object that owns the helper thread
  */
 void* helper_loop(void* args) {
    enclave* obj         = (enclave*)args;
-   op_t*    local_job   = new op_t();
-   bool     update_all  = obj->populate_init;
    // Pin to CPU
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
@@ -398,19 +228,81 @@ void* helper_loop(void* args) {
 
    if(obj->reset_index) {
       obj->reset_index = false;
-      reset_index(obj);
+      obj->set_sentinel(inode_new(NULL, NULL, obj->get_sentinel()->node, obj->get_enclave_num()));
    }
 
    while(1) {
       if(obj->finished) break;
-      // Update intermediate layer from op array
-      op_t* cur_job = local_job;
-      while((cur_job = obj->opbuffer_remove(&cur_job))) {
-         update_intermediate_layer(obj, cur_job);
+      usleep(obj->sleep_time);
+
+      int non_deleted = 0;
+      int tall_deleted = 0;
+      inode_t* sentinel = obj->get_sentinel();
+      inode_t *inode, *inew;
+      inode_t *inodes[MAX_LEVELS];
+      int enclave_id = obj->get_enclave_num();
+      int raised = 0; /* keep track of if we raised index level */
+      int threshold;  /* for testing if we should lower index level */
+      int i;
+      for (i = 0; i < MAX_LEVELS; i++) {
+         inodes[i] = NULL;
       }
-      // Update index layer on predetermined frequency
-      if(update_all || rand_range_re(&obj->update_seed, 100) < obj->update_freq) {
-         update_index_layer(obj);
+
+      // traverse the data layer and do physical deletes
+      bg_trav_nodes(obj);
+
+      assert(sentinel->node->level < MAX_LEVELS);
+
+      /* get the first index node at each level */
+      inode = sentinel;
+      for (i = sentinel->node->level - 1; i >= 0; i--) {
+         inodes[i] = inode;
+         assert(NULL != inodes[i]);
+         inode = inode->down;
+      }
+      assert(NULL == inode);
+
+      // raise bottom level nodes
+      raised = bg_raise_nlevel(inodes[0], enclave_id);
+
+      if (raised && (1 == sentinel->node->level)) {
+         /* add a new index level */
+         sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->node, enclave_id));
+
+         ++sentinel->node->level;
+         assert(NULL == inodes[1]);
+         inodes[1] = sentinel;
+         #ifdef BG_STATS
+         ++obj->shadow_stats.raises;
+         #endif
+      }
+
+      // raise the index level nodes
+      for (i = 0; i < (sentinel->node->level - 1); i++) {
+         assert(i < MAX_LEVELS-1);
+         raised = bg_raise_ilevel(inodes[i],    // level raised
+                                 inodes[i + 1], // level above
+                                 i + 1,         // current height
+                                 enclave_id);
+      }
+
+      if (raised) {
+         // add a new index level
+         sentinel = obj->set_sentinel(inode_new(NULL, sentinel, sentinel->node, enclave_id));
+         ++sentinel->node->level;
+         #ifdef BG_STATS
+         ++obj->shadow_stats.raises;
+         #endif
+      }
+
+      // if needed, remove the lowest index level
+      if (obj->tall_del > obj->non_del * 10) {
+         if (NULL != inodes[1]) {
+            bg_lower_ilevel(inodes[1], enclave_id); // level above
+            #ifdef BG_STATS
+            ++obj->shadow_stats.lowers;
+            #endif
+         }
       }
    }
    return NULL;

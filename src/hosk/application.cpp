@@ -133,26 +133,28 @@ static int sl_finish_delete(sl_key_t key, node_t *node, val_t node_val) {
  * > -1 if @key is not present in the set and insertion operation
  *   fails due to concurrency.
  */
-static int sl_finish_insert(sl_key_t key, val_t val, node_t *node,
-      val_t node_val, node_t *next, node_t* lnext, node_t** pnode) {
+static int sl_finish_insert(sl_key_t key, val_t val, node_t *node, val_t node_val,
+      node_t *next, node_t* lprev, node_t* lnext, node_t** pnode, int enclave_id) {
    int result = -1;
    node_t *newNode;
-   if (node->key == key) {
-      if (NULL == node_val) {
-         if (CAS(&node->val, node_val, val)) {
+   if(node->key == key) {
+      if(NULL == node_val) {
+         if(CAS(&node->val, node_val, val)) {
             result = 1;
             *pnode = node;
          }
       } else { result = 0; }
    } else {
-      newNode = node_new(key, val, node, next, lnext);
-      if (CAS(&node->next, next, newNode)) {
+      newNode = node_new(key, val, node, next, lprev, lnext, enclave_id);
+      if(CAS(&node->next, next, newNode)) {
          assert (node->next != node);
-         if (NULL != next) { next->prev = newNode; } /* safe */
+         if(NULL != next)  { next->prev = newNode; } /* safe */
+         if(NULL != lnext) { lnext->local_prev = newNode; }
+         lprev->local_next = newNode;
          result = 1;
          *pnode = newNode;
       } else {
-         node_delete(newNode);
+         node_delete(newNode, enclave_id);
       }
    }
    return result;
@@ -231,10 +233,14 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
    val_t node_val = NULL, next_val = NULL;
    int result = 0;
    int this_socket = obj->get_socket_num();
+   int enclave_id  = obj->get_enclave_num();
 
    // Traverse the enclave-local data layer
-   while(node->lnext && node->lnext->key <= key) {
-      node = node->lnext;
+   node_t* lprev = node;
+   node_t* lnext = lprev->local_next;
+   while(lnext && lnext->key <= key) {
+      lprev = node = lnext;
+      lnext = node->local_next;
 #ifdef COUNT_TRAVERSAL
       obj->trav_dat_local++;
 #endif
@@ -258,12 +264,9 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
 #ifdef COUNT_TRAVERSAL
    obj->trav_dat++;
 #endif
-      if(NULL != next) {
-         next_val = next->val;
-         if((node_t*)next_val == next) {
-            node_remove(node, next);
-            continue;
-         }
+      if(NULL != next && ((node_t*)(next->val)) == next) {
+         node_remove(node, next, enclave_id);
+         continue;
       }
       if (NULL == next || next->key > key) {
          if (CONTAINS == optype) {
@@ -271,7 +274,7 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype,
          } else if (DELETE == optype) {
             result = sl_finish_delete(key, node, node_val);
          } else if (INSERT == optype) {
-            result = sl_finish_insert(key, val, node, node_val, next, node->lnext, pnode);
+            result = sl_finish_insert(key, val, node, node_val, next, lprev, lnext, pnode, enclave_id);
          }
          if (-1 != result) break;
          continue;
@@ -303,9 +306,9 @@ void* application_loop(void* args) {
    enclave*    obj      = (enclave*)args;
    app_param*  params   = obj->aparams;
    app_res*    lresults = new app_res();
-   int         unext    = -1;
-   int         last     = -1;
-   uint        key      =  0;
+   uint        key      = 0;
+   node_t*     pnode    = NULL;
+   int unext = -1, last = -1, result = 0;
    sl_optype_t otype;
    VOLATILE AO_t *stop  = params->stop;
 
@@ -356,19 +359,13 @@ void* application_loop(void* args) {
             key = rand_range_re(&params->seed, params->range);
          }
       }
-      node_t* pnode = NULL;
-      int result = sl_do_operation(obj, key, otype, &pnode);
+      pnode  = NULL;
+      result = sl_do_operation(obj, key, otype, &pnode);
+      last   = update_results(otype, lresults, result, key, last, params->alternate);
+      unext  = get_unext(params, lresults);
 #ifdef COUNT_TRAVERSAL
       obj->total_ops++;
 #endif
-      last = update_results(otype, lresults, result, key, last, params->alternate);
-//      if(result && otype != CONTAINS) {
-//         while(!obj->opbuffer_insert(key, pnode)){
-//            printf("Waiting to insert...\n");
-//            exit(-1);
-//         }
-//      }
-      unext = get_unext(params, lresults);
    }
    return lresults;
 }
@@ -395,8 +392,17 @@ void* initial_populate(void* args) {
       if(sl_do_operation(obj, key, INSERT, &pnode)) {
          i++;
          *params->last = key;
-         //while(!obj->opbuffer_insert(key, pnode)){}
       }
    }
    return NULL;
+}
+
+/* reset_node_levels() - reset the node levels*/
+void reset_node_levels(node_t* node) {
+   node->level = 1;
+   node_t* next = node->next;
+   while(next != NULL) {
+      next->level = 0;
+      next = next->next;
+   }
 }
