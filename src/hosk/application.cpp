@@ -165,6 +165,7 @@ static int sl_finish_insert(sl_key_t key, val_t val, node_t *node,
 node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
    inode_t *item, *next_item;
    node_t* ret_node = NULL;
+   mnode_t* mnode = NULL;
    item = obj->get_sentinel();
    int this_socket = obj->get_socket_num();
 #ifdef ADDRESS_CHECKING
@@ -190,7 +191,8 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
          obj->trav_idx++;
 #endif
          if (NULL == next_item) {
-            ret_node = item->intermed->node;
+            mnode = item->intermed;
+            //ret_node = item->intermed->node;
 #ifdef ADDRESS_CHECKING
             zone_access_check(this_socket, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
@@ -200,7 +202,8 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
             break;
          }
       } else if (next_item->key == key) {
-         ret_node = item->intermed->node;
+         mnode = item->intermed;
+         //ret_node = item->intermed->node;
 #ifdef ADDRESS_CHECKING
          zone_access_check(this_socket, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
@@ -211,14 +214,14 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
       }
       item = next_item;
    }
-   while(ret_node->next && ret_node->key <= key) {
-      ret_node = ret_node->next;
+   while(mnode->next && mnode->next->key <= key) {
+      mnode = mnode->next;
 #ifdef COUNT_TRAVERSAL
       obj->trav_idx++;
 #endif
    }
 
-   return ret_node;
+   return mnode->node;
 }
 
 /**
