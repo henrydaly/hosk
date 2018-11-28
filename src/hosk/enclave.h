@@ -7,8 +7,8 @@
 #define ENCLAVE_H_
 #include "skiplist.h"
 #include "hardware_layout.h"
-#define APP_IDX   0
-#define HLP_IDX   1
+#define APP_THD_ID 0
+#define HLP_THD_ID 1
 // Uncomment to collect stats on thread-local index and data layer traversal
 //#define COUNT_TRAVERSAL
 
@@ -95,7 +95,7 @@ public:
    app_res*    stop_application(void);
    inode_t*    get_sentinel(void);
    inode_t*    set_sentinel(inode_t* new_sent);
-   int         get_thread_id(int idx);
+   void        pin_to_cpu(int thread_id);
    int         get_socket_num(void);
    int         get_enclave_num(void);
    void        populate_begin(init_param* params, int num);
@@ -128,7 +128,8 @@ void* initial_populate(void* args);
 void* application_loop(void* args);
 void* helper_loop(void* args);
 void  reset_node_levels(node_t* node);
-void  node_remove(node_t* local_prev, node_t* node, int enclave_id);
+void  node_remove(node_t* prev, node_t* node, int enclave_id);
+int   tl_remove(node_t* prev, node_t* node, int enclave_id);
 void  barrier_init(barrier_t *b, int n);
 void  barrier_cross(barrier_t *b);
 #endif

@@ -73,7 +73,7 @@ inline int get_unext(app_param* d, app_res* r) {
 static int sl_finish_contains(sl_key_t key, node_t* node, val_t node_val) {
    int result = 0;
    assert(NULL != node);
-   if ((key == node->key) && (NULL != node_val)) { result = 1; }
+   if ((key == node->key) && (LOGIC_RMVD != node_val)) { result = 1; }
    return result;
 }
 
@@ -98,10 +98,10 @@ static int sl_finish_delete(sl_key_t key, node_t *node, val_t node_val) {
          /* loop until we or someone else deletes */
          while (1) {
             node_val = node->val;
-            if (NULL == node_val || node == node_val) {
+            if (node == node_val || LOGIC_RMVD == node_val) {
                result = 0;
                break;
-            } else if (CAS(&node->val, node_val, NULL)) {
+            } else if (CAS(&node->val, node_val, LOGIC_RMVD)) {
                result = 1;
                break;
             }
@@ -137,7 +137,7 @@ static int sl_finish_insert(sl_key_t key, val_t val, node_t *node, val_t node_va
    int result = -1;
    node_t *newNode;
    if(node->key == key) {
-      if(NULL == node_val) {
+      if(LOGIC_RMVD == node_val) {
          if(CAS(&node->val, node_val, val)) { result = 1; }
       } else { result = 0; }
    } else {
@@ -232,12 +232,13 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype, sl_key_t ke
    while(lnext && lnext->key <= key) {
       lprev = node = lnext;
       lnext = node->local_next;
+      // TODO: do we need to update thread-local links here?
 #ifdef COUNT_TRAVERSAL
       obj->trav_dat_local++;
 #endif
    }
 
-   // Now traverse total data layer
+   // Now traverse actual data layer
    while (1) {
       while (node == (node_val = node->val)) {
          node = node->prev;
@@ -249,6 +250,14 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype, sl_key_t ke
 #endif
       }
       next = node->next;
+      if(NULL != next) {
+         next_val = next->val;
+         if((node_t*)next_val == next) {
+            // Node is marked for deletion
+            node_remove(node, next, enclave_id);
+            continue;
+         }
+      }
 #ifdef ADDRESS_CHECKING
       zone_access_check(this_socket, next, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
@@ -297,13 +306,7 @@ void* application_loop(void* args) {
    int unext = -1, last = -1, result = 0;
    sl_optype_t otype;
    VOLATILE AO_t *stop  = params->stop;
-
-   // Pin to CPU
-   cpu_set_t cpuset;
-   CPU_ZERO(&cpuset);
-   CPU_SET(obj->get_thread_id(APP_IDX), &cpuset);
-   pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-   sleep(1);
+   obj->pin_to_cpu(APP_THD_ID);
 
    barrier_cross(params->barrier);
    /* Is the first op an update? */
@@ -316,9 +319,9 @@ void* application_loop(void* args) {
             key = rand_range_re(&params->seed, params->range);
             otype = INSERT;
          } else { // remove
+            otype = DELETE;
             if (params->alternate) { // alternate mode (default)
                key = last;
-               otype = DELETE;
             } else {
                key = rand_range_re(&params->seed, params->range);
             }
@@ -362,13 +365,7 @@ void* application_loop(void* args) {
 void* initial_populate(void* args) {
    enclave*    obj      = (enclave*)args;
    init_param* params   = obj->iparams;
-
-   // Pin to CPU
-   cpu_set_t cpuset;
-   CPU_ZERO(&cpuset);
-   CPU_SET(obj->get_thread_id(APP_IDX), &cpuset);
-   pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-   sleep(1);
+   obj->pin_to_cpu(APP_THD_ID);
 
    int i = 0;
    while(i < obj->num_populate) {

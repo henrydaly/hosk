@@ -12,6 +12,7 @@
  */
 
 #include <pthread.h>
+#include <unistd.h>
 #include "enclave.h"
 #include "hardware_layout.h"
 #include "skiplist.h"
@@ -95,21 +96,22 @@ inode_t* enclave::set_sentinel(inode_t* new_sent) {
    return (sentinel = new_sent);
 }
 
-/**
- * get_thread_id() - return the cpu on which the enclave executes
- * @idx - either 0 (application thread) or 1 (helper thread)
- */
-int enclave::get_thread_id(int idx) {
-   return core->hwthread_id[idx];
+/* pin_to_cpu() - pins thread to a cpu */
+inline void enclave::pin_to_cpu(int thread_id) {
+   cpu_set_t cpuset;
+   CPU_ZERO(&cpuset);
+   CPU_SET(core->hwthread_id[thread_id], &cpuset);
+   pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+   sleep(1);
 }
 
 /* get_enclave_num() - return the enclave id number */
-int enclave::get_enclave_num(void) {
+inline int enclave::get_enclave_num(void) {
    return enclave_num;
 }
 
 /* get_socket_num() - return the enclave's socket id */
-int enclave::get_socket_num(void) {
+inline int enclave::get_socket_num(void) {
    return socket_num;
 }
 

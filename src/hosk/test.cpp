@@ -298,8 +298,9 @@ int main(int argc, char **argv) {
    pthread_t* thds =  (pthread_t*)malloc(nb_threads*sizeof(pthread_t));
    zargs           =(tinit_args**)malloc(nb_threads*sizeof(tinit_args*));
    allocators = (numa_allocator**)malloc(nb_threads*sizeof(numa_allocator*));
-   unsigned num_expected_nodes = (unsigned)((2 * initial * (1.0 + (update/100.0))) / nb_threads);
-   unsigned buffer_size = CACHE_LINE_SIZE * num_expected_nodes;
+   uint num_expected_nodes = (unsigned)((initial / nb_threads) * (1.0 + (update/100.0)));
+   uint buf_multiplier = 10;
+   uint buffer_size = CACHE_LINE_SIZE * num_expected_nodes * buf_multiplier;
 
    int sock_id = 0;
    int core_id = 0;
@@ -323,7 +324,7 @@ int main(int argc, char **argv) {
       free(zargs[i]);
    }
    free(thds);
-   //free(zargs);
+   free(zargs);
    stop = 0;
    global_seed = rand();
    if (pthread_key_create(&rng_seed_key, NULL) != 0) {
@@ -374,7 +375,7 @@ int main(int argc, char **argv) {
    for(int i = 0; i < nb_threads; ++i) {
       while(enclaves[i]->get_sentinel()->node->level < (floor_log_2(d) - 1)){}
       enclaves[i]->stop_helper();
-      enclaves[i]->start_helper(100000);
+      enclaves[i]->start_helper(0); //(100000);
       //printf("  Level of enclave %2d: %d\n", i, enclaves[i]->get_sentinel()->node->level);
    }
 

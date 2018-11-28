@@ -18,7 +18,6 @@
 #include <assert.h>
 #include <atomic_ops.h>
 #include <pthread.h>
-#include <unistd.h>
 #include "common.h"
 #include "enclave.h"
 #include "skiplist.h"
@@ -28,20 +27,24 @@
  * @local_prev - the thread-local node before the node to be deleted
  * @node - the node we are attempting to delete
  * @enclave_id -  enclave
+ *
+ * Note: This operation will only be carried out if @node
+ * has been successfully marked for deletion (i.e. its value points
+ * to itself, and the node must now be deleted). First we insert a marker
+ * node directly after @node. Then, if no nodes have been inserted in
+ * between @prev and @node, physically remove @node and the marker
+ * by pointing @prev->next past these nodes.
  */
-void node_remove(node_t* local_prev, node_t* node, int enclave_id) {
+void node_remove(node_t* prev, node_t* node, int enclave_id) {
    node_t *ptr, *insert;
-   node_t* prev = node->prev;
    assert(prev);
    assert(node);
-   assert(prev->next == node);
-   node_t* local_next = node->local_next;
-
+   // assert(prev->next == node);
    if(node->val != node || node->key == 0) return;
    ptr = node->next;
    while(!ptr || ptr->key != 0) {
       // use key = 0 as marker for node to delete
-      insert = node_new(0, NULL, node, ptr, local_next, enclave_id);
+      insert = node_new(0, LOGIC_RMVD, node, ptr, NULL, enclave_id);
       insert->val = insert;
       CAS(&node->next, ptr, insert);
 
@@ -50,30 +53,32 @@ void node_remove(node_t* local_prev, node_t* node, int enclave_id) {
    }
    // ensure if key == 0 that it has a previous (so don't count sentinel)
    if(prev->next != node || (prev->key == 0 && prev->prev)) return;
-   node_t* new_next = ptr->next;
-   CAS(&prev->next, node, new_next);
+   CAS(&prev->next, node, ptr->next);
    assert(prev->next != prev);
-   if(prev->next == new_next) { // On success, update pointers
-      if(new_next){ new_next->prev = prev; }
-      local_prev->next = local_next;
+   if(prev->next == ptr->next) {
+      node->val = UNLINKED; // The node has been successfully unlinked
+      // ptr->next->prev = prev; TODO: when everything works try // On success, update pointers
    }
 }
 
 /**
- * bg_remove() - start the node physical removal (thread-local)
+ * tl_remove() - thread-local node physical removal
  * @prev  - the node before the one to remove
- * @mnode - the node to remove
+ * @node - the node to remove
  * @enclave_id -  enclave
- * returns 1 if deleted, 0 if not
+ * returns 1 on success, 0 on failure
  */
-void bg_remove(node_t* prev, node_t* node, int enclave_id) {
-   if(node->level == 0 && node->val == NULL) {
-      // Only remove short nodes
-      CAS(&node->val, NULL, node);
-      if(node->val == node) {
-         node_remove(prev, node, enclave_id);
-      }
+int tl_remove(node_t* prev, node_t* node, int enclave_id) {
+   int result = 0;
+   // Only remove short nodes
+   if(node->val == UNLINKED) {
+      prev->local_next = node->local_next;
+      result = 1;
+   } else if (node->level == 0 && node->val == LOGIC_RMVD) {
+      CAS(&node->val, LOGIC_RMVD, node); // Prepare to physically remove
+      //if(node->val == node){ node_remove(node->prev, node, enclave_id); }
    }
+   return result;
 }
 
 /**
@@ -90,11 +95,14 @@ static void bg_trav_nodes(enclave* obj) {
 #endif
 
    while (NULL != node) {
-      bg_remove(prev, node, enclave_id);
-      if(NULL != node->val && node != node->val) { ++obj->non_del; }
-      else if (node->level >= 1)                 { ++obj->tall_del; }
-      prev = node;
-      node = node->local_next;
+      if(tl_remove(prev, node, enclave_id)) {
+         node = prev->next;
+      } else {
+         if(NULL != node->val && node != node->val) { ++obj->non_del; }
+         else if (node->level >= 1)                 { ++obj->tall_del; }
+         prev = node;
+         node = node->local_next;
+      }
 #ifdef ADDRESS_CHECKING
       zone_access_check(zone, node, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
 #endif
@@ -119,12 +127,12 @@ static int bg_raise_nlevel(inode_t* inode, int enclave_id) {
    next = node->local_next;
    while (NULL != next) {
       /* don't raise deleted nodes */
-      if (node != node->val) {
+      if (node->val != node && node->val != NODE_UNLINKED_FLAG) {
          if (((prev->level == 0) && (node->level == 0)) && (next->level == 0)) {
             raised = 1;
 
             /* get the correct index above and behind */
-            while (above && above->node->key < node->key) {
+            while (above && above->key < node->key) {
                above = above->right;
                if (above != inode->right) { above_prev = above_prev->right; }
             }
@@ -161,7 +169,7 @@ static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int 
 
    index = iprev->right;
    while ((NULL != index) && (NULL != (inext = index->right))) {
-      while (index->node->val == index->node) {
+      while (index->node->val == index->node || index->node->val == NODE_UNLINKED_FLAG) {
          /* skip deleted nodes */
          iprev->right = inext;
          if (NULL == inext) break;
@@ -228,11 +236,7 @@ void* helper_loop(void* args) {
    inode_t* sentinel = obj->get_sentinel();
    inode_t *inode, *inew;
    inode_t *inodes[MAX_LEVELS];
-   // Pin to CPU
-   cpu_set_t cpuset;
-   CPU_ZERO(&cpuset);
-   CPU_SET(obj->get_thread_id(HLP_IDX), &cpuset);
-   pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+   obj->pin_to_cpu(HLP_THD_ID);
 
    if(obj->reset_index) {
       obj->reset_index = false;
