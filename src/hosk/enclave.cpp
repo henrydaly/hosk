@@ -97,7 +97,7 @@ inode_t* enclave::set_sentinel(inode_t* new_sent) {
 }
 
 /* pin_to_cpu() - pins thread to a cpu */
-inline void enclave::pin_to_cpu(int thread_id) {
+void enclave::pin_to_cpu(int thread_id) {
    cpu_set_t cpuset;
    CPU_ZERO(&cpuset);
    CPU_SET(core->hwthread_id[thread_id], &cpuset);
@@ -106,12 +106,12 @@ inline void enclave::pin_to_cpu(int thread_id) {
 }
 
 /* get_enclave_num() - return the enclave id number */
-inline int enclave::get_enclave_num(void) {
+int enclave::get_enclave_num(void) {
    return enclave_num;
 }
 
 /* get_socket_num() - return the enclave's socket id */
-inline int enclave::get_socket_num(void) {
+int enclave::get_socket_num(void) {
    return socket_num;
 }
 

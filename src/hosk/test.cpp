@@ -107,8 +107,7 @@ void catcher(int sig) { printf("CAUGHT SIGNAL %d\n", sig); }
 /* thread_init() - initializes the enclave object for a thread */
 void* thread_init(void* args) {
    tinit_args* zia = (tinit_args*)args;
-   int athread_id = zia->core->hwthread_id[APP_IDX];
-   int hthread_id = zia->core->hwthread_id[HLP_IDX];
+   int athread_id = zia->core->hwthread_id[APP_THD_ID];
 
    // Pin to CPU
    cpu_set_t cpuset;

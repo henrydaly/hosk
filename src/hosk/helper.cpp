@@ -18,6 +18,7 @@
 #include <assert.h>
 #include <atomic_ops.h>
 #include <pthread.h>
+#include <unistd.h>
 #include "common.h"
 #include "enclave.h"
 #include "skiplist.h"
@@ -127,7 +128,7 @@ static int bg_raise_nlevel(inode_t* inode, int enclave_id) {
    next = node->local_next;
    while (NULL != next) {
       /* don't raise deleted nodes */
-      if (node->val != node && node->val != NODE_UNLINKED_FLAG) {
+      if (node->val != node && node->val != UNLINKED) {
          if (((prev->level == 0) && (node->level == 0)) && (next->level == 0)) {
             raised = 1;
 
@@ -169,7 +170,7 @@ static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int 
 
    index = iprev->right;
    while ((NULL != index) && (NULL != (inext = index->right))) {
-      while (index->node->val == index->node || index->node->val == NODE_UNLINKED_FLAG) {
+      while (index->node->val == index->node || index->node->val == UNLINKED) {
          /* skip deleted nodes */
          iprev->right = inext;
          if (NULL == inext) break;
