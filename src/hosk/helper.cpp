@@ -25,7 +25,7 @@
 
 /**
  * node_remove() - attempts to remove a node from the data layer
- * @local_prev - the thread-local node before the node to be deleted
+ * @prev - the thread-local node before the node to be deleted
  * @node - the node we are attempting to delete
  * @enclave_id -  enclave
  *
@@ -40,7 +40,6 @@ void node_remove(node_t* prev, node_t* node, int enclave_id) {
    node_t *ptr, *insert;
    assert(prev);
    assert(node);
-   // assert(prev->next == node);
    if(node->val != node || node->key == 0) return;
    ptr = node->next;
    while(!ptr || ptr->key != 0) {
@@ -97,10 +96,11 @@ static void bg_trav_nodes(enclave* obj) {
 
    while (NULL != node) {
       if(tl_remove(prev, node, enclave_id)) {
-         node = prev->next;
+         node = prev->local_next;
       } else {
-         if(NULL != node->val && node != node->val) { ++obj->non_del; }
-         else if (node->level >= 1)                 { ++obj->tall_del; }
+         val_t nval = node->val;
+         if(nval != LOGIC_RMVD && nval != node) { ++obj->non_del; }
+         else if (node->level >= 1)             { ++obj->tall_del; }
          prev = node;
          node = node->local_next;
       }
@@ -133,7 +133,7 @@ static int bg_raise_nlevel(inode_t* inode, int enclave_id) {
             raised = 1;
 
             /* get the correct index above and behind */
-            while (above && above->key < node->key) {
+            while (above && above->node->key < node->key) {
                above = above->right;
                if (above != inode->right) { above_prev = above_prev->right; }
             }
@@ -241,7 +241,7 @@ void* helper_loop(void* args) {
 
    if(obj->reset_index) {
       obj->reset_index = false;
-      sentinel = obj->set_sentinel(inode_new(NULL, NULL, obj->get_sentinel()->node, obj->get_enclave_num()));
+      sentinel = obj->set_sentinel(inode_new(NULL, NULL, sentinel->node, obj->get_enclave_num()));
       sentinel->node->level = 1;
    }
 
@@ -258,7 +258,7 @@ void* helper_loop(void* args) {
          inodes[i] = NULL;
       }
 
-      // traverse the data layer and do physical deletes
+      // traverse the thread-local data layer and do physical deletes
       bg_trav_nodes(obj);
 
       assert(sentinel->node->level < MAX_LEVELS);

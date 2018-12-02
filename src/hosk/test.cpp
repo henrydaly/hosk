@@ -43,8 +43,8 @@
 #define DEFAULT_ALTERNATE              0
 #define DEFAULT_EFFECTIVE              1
 #define DEFAULT_UNBALANCED             0
-#define MAX_NUMA_ZONES                 numa_max_node() + 1
-#define MIN_NUMA_ZONES                 1
+#define SOCKET_MAX                     numa_max_node() + 1
+#define SOCKET_MIN                     1
 #define XSTR(s)                        STR(s)
 #define STR(s)                         #s
 #define ATOMIC_CAS_MB(a, e, v)         (AO_compare_and_swap_full((VOLATILE AO_t *)(a), (AO_t)(e), (AO_t)(v)))
@@ -59,7 +59,7 @@ struct tinit_args {
    uint     allocator_size;
 };
 
-int num_numa_zones = MAX_NUMA_ZONES;
+int num_sockets = SOCKET_MAX;
 VOLATILE AO_t stop;
 unsigned int global_seed;
 pthread_key_t rng_seed_key;
@@ -201,7 +201,7 @@ int main(int argc, char **argv) {
                    "  -u, --update-rate <int>\n"
                    "        Percentage of update transactions (default=" XSTR(DEFAULT_UPDATE) ")\n"
                    "  -z <int>\n"
-                   "        Number of NUMA zones to use (default = " XSTR(MAX_NUMA_ZONES) ")\n"
+                   "        Number of sockets to use (default = " XSTR(SOCKET_MAX) ")\n"
                    "  -y <int>\n"
                    "        Frequency of index layer updates"
                    );
@@ -234,7 +234,7 @@ int main(int argc, char **argv) {
             unbalanced = atoi(optarg);
             break;
          case 'z':
-            num_numa_zones = atoi(optarg);
+            num_sockets = atoi(optarg);
             break;
          case '?':
             printf("Use -h or --help for help\n");
@@ -248,7 +248,7 @@ int main(int argc, char **argv) {
    assert(nb_threads > 1);
    assert(range > 0 && range >= initial);
    assert(update >= 0 && update <= 100);
-   assert(num_numa_zones >= MIN_NUMA_ZONES && num_numa_zones <= MAX_NUMA_ZONES);
+   assert(num_sockets >= SOCKET_MIN && num_sockets <= SOCKET_MAX);
    // get hardware info
    hl_t* cur_hw = get_hardware_layout();
 
@@ -267,7 +267,7 @@ int main(int argc, char **argv) {
    printf("Alternate    : %d\n", alternate);
    printf("Effective    : %d\n", effective);
    printf("Type sizes   : int=%d/long=%d/ptr=%d/word=%d\n", (int)sizeof(int), (int)sizeof(long), (int)sizeof(void *), (int)sizeof(uintptr_t));
-   printf("NUMA Zones   : %d\n", num_numa_zones);
+   printf("Sockets      : %d\n", num_sockets);
 
    timeout.tv_sec = duration / 1000;
    timeout.tv_nsec = (duration % 1000) * 1000000;
@@ -298,7 +298,7 @@ int main(int argc, char **argv) {
    zargs           =(tinit_args**)malloc(nb_threads*sizeof(tinit_args*));
    allocators = (numa_allocator**)malloc(nb_threads*sizeof(numa_allocator*));
    uint num_expected_nodes = (unsigned)((initial / nb_threads) * (1.0 + (update/100.0)));
-   uint buf_multiplier = 10;
+   uint buf_multiplier = 100;
    uint buffer_size = CACHE_LINE_SIZE * num_expected_nodes * buf_multiplier;
 
    int sock_id = 0;
@@ -313,7 +313,7 @@ int main(int argc, char **argv) {
       zargs[i] = zia;
       pthread_create(&thds[i], NULL, thread_init, (void*)zia);
       sock_id++;
-      if(sock_id == cur_hw->num_sockets) {
+      if(sock_id == cur_hw->num_sockets || sock_id == num_sockets) {
          sock_id = 0;
          core_id++;
       }
