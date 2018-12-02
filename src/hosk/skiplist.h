@@ -13,7 +13,6 @@
 #define NUM_LEVELS   2
 #define NODE_LEVEL   0
 #define INODE_LEVEL  1
-#define UNLINKED     (void*)-1
 #define LOGIC_RMVD   NULL
 // Uncomment to allow address checking (determines NUMA local accesses) - reduces performance
 //#define ADDRESS_CHECKING

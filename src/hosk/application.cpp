@@ -240,10 +240,6 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype, sl_key_t ke
 
    // Now traverse actual data layer
    while(1) {
-      // skip unlinked nodes
-      while((node->val == UNLINKED || node->key == 0) && node->next) {
-         node = node->next;
-      }
       while(node == (node_val = node->val)) {
          node = node->prev;
 #ifdef COUNT_TRAVERSAL

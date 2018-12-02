@@ -55,10 +55,9 @@ void node_remove(node_t* prev, node_t* node, int enclave_id) {
    if(prev->next != node || (prev->key == 0 && prev->prev)) return;
    CAS(&prev->next, node, ptr->next);
    assert(prev->next != prev);
-   if(prev->next == ptr->next) {
-      node->val = UNLINKED; // The node has been successfully unlinked
-      // ptr->next->prev = prev; TODO: when everything works try // On success, update pointers
-   }
+   //if(prev->next == ptr->next) {
+   //    ptr->next->prev = prev; TODO: when everything works try // On success, update pointers
+   //}
 }
 
 /**
@@ -70,11 +69,11 @@ void node_remove(node_t* prev, node_t* node, int enclave_id) {
  */
 int tl_remove(node_t* prev, node_t* node, int enclave_id) {
    int result = 0;
-   // Only remove short nodes
-   if(node->val == UNLINKED) {
+   if(node->val == node && node->next && node->next->key == 0) {
       prev->local_next = node->local_next;
       result = 1;
    } else if (node->level == 0 && node->val == LOGIC_RMVD) {
+      // Only remove short nodes
       CAS(&node->val, LOGIC_RMVD, node); // Prepare to physically remove
       //if(node->val == node){ node_remove(node->prev, node, enclave_id); }
    }
@@ -128,7 +127,7 @@ static int bg_raise_nlevel(inode_t* inode, int enclave_id) {
    next = node->local_next;
    while (NULL != next) {
       /* don't raise deleted nodes */
-      if (node->val != node && node->val != UNLINKED) {
+      if (node->val != node) {
          if (((prev->level == 0) && (node->level == 0)) && (next->level == 0)) {
             raised = 1;
 
@@ -169,18 +168,18 @@ static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int 
    assert(NULL != iprev_tall);
 
    index = iprev->right;
-   while ((NULL != index) && (NULL != (inext = index->right))) {
-      while (index->node->val == index->node || index->node->val == UNLINKED) {
+   while((NULL != index) && (NULL != (inext = index->right))) {
+      while(index->node->val == index->node) {
          /* skip deleted nodes */
          iprev->right = inext;
          if (NULL == inext) break;
          index = inext;
          inext = inext->right;
       }
-      if (NULL == inext) break;
-      if (((iprev->node->level <= height) &&
-          (index->node->level <= height)) &&
-          (inext->node->level <= height)) {
+      if(NULL == inext) break;
+      if(((iprev->node->level <= height) &&
+         (index->node->level <= height)) &&
+         (inext->node->level <= height)) {
 
          raised = 1;
 
