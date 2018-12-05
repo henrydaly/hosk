@@ -35,7 +35,7 @@ extern bool base_malloc;
  */
 node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next, node_t* local_next, int enclave_id) {
    node_t *node;
-   node = (node_t*)allocators[enclave_id]->nalloc(DNODE_SZ);
+   node = (node_t*)allocators[enclave_id]->nalloc(DNODE_SZ, DNODE_BUFID);
    node->key   = key;
    node->val   = val;
    node->prev  = prev;
@@ -56,7 +56,7 @@ node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next, node_t* lo
 inode_t* inode_new(inode_t *right, inode_t *down, node_t* node, int enclave_id) {
    inode_t *inode;
    if(base_malloc) { inode = (inode_t*)malloc(INODE_SZ); }
-   else { inode = (inode_t*)allocators[enclave_id]->nalloc(INODE_SZ); }
+   else { inode = (inode_t*)allocators[enclave_id]->nalloc(INODE_SZ, INODE_BUFID); }
    inode->right      = right;
    inode->down       = down;
    inode->node       = node;
@@ -70,7 +70,7 @@ inode_t* inode_new(inode_t *right, inode_t *down, node_t* node, int enclave_id) 
  * @enclave_id  -  the enclave number
  */
 void node_delete(node_t *node, int enclave_id) {
-   allocators[enclave_id]->nfree(node, DNODE_SZ);
+   allocators[enclave_id]->nfree(node, DNODE_SZ, DNODE_BUFID);
 }
 
 /**
@@ -79,7 +79,7 @@ void node_delete(node_t *node, int enclave_id) {
  * @enclave_id  -  the enclave number
  */
 void inode_delete(inode_t *inode, int enclave_id) {
-   allocators[enclave_id]->nfree(inode, INODE_SZ);
+   allocators[enclave_id]->nfree(inode, INODE_SZ, INODE_BUFID);
 }
 
 /**

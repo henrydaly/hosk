@@ -56,7 +56,8 @@ struct tinit_args {
    int      enclave_num;
    core_t*  core;
    uint     sock_num;
-   uint     allocator_size;
+   uint     index_allocator;
+   uint     data_allocator;
 };
 
 int num_sockets = SOCKET_MAX;
@@ -117,7 +118,7 @@ void* thread_init(void* args) {
    numa_set_preferred(zia->sock_num);
    sleep(1);
 
-   numa_allocator* na = new numa_allocator(zia->allocator_size);
+   numa_allocator* na = new numa_allocator(zia->data_allocator, zia->index_allocator);
    allocators[zia->enclave_num] = na;
    node_t*  dnode = node_new(0, NULL, NULL, sentinel_node, NULL, zia->enclave_num);
    dnode->level = 1;
@@ -298,15 +299,16 @@ int main(int argc, char **argv) {
    zargs           =(tinit_args**)malloc(nb_threads*sizeof(tinit_args*));
    allocators = (numa_allocator**)malloc(nb_threads*sizeof(numa_allocator*));
    uint num_expected_nodes = (unsigned)((initial / nb_threads) * (1.0 + (update/100.0)));
-   uint buf_multiplier = 100;
-   uint buffer_size = CACHE_LINE_SIZE * num_expected_nodes * buf_multiplier;
-
+   uint buf_multiplier = 10;
+   uint data_buf_size = CACHE_LINE_SIZE * num_expected_nodes * buf_multiplier;
+   uint index_buf_size = data_buf_size;
    int sock_id = 0;
    int core_id = 0;
    for(int i = 0; i < nb_threads; ++i) {
       tinit_args* zia      = (tinit_args*)malloc(sizeof(tinit_args));
       socket_t cur_sock    = cur_hw->sockets[sock_id];
-      zia->allocator_size  = buffer_size;
+      zia->data_allocator  = data_buf_size;
+      zia->index_allocator = index_buf_size;
       zia->core            = &cur_sock.cores[core_id];
       zia->sock_num        = sock_id;
       zia->enclave_num     = i;
