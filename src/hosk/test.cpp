@@ -43,6 +43,7 @@
 #define DEFAULT_ALTERNATE              0
 #define DEFAULT_EFFECTIVE              1
 #define DEFAULT_UNBALANCED             0
+#define DEFAULT_PARTITION              0
 #define SOCKET_MAX                     numa_max_node() + 1
 #define SOCKET_MIN                     1
 #define XSTR(s)                        STR(s)
@@ -153,6 +154,8 @@ int main(int argc, char **argv) {
    unsigned long reads = 0, effreads = 0, updates = 0, effupds = 0;
    pthread_t *threads;
    pthread_attr_t attr;
+   pthread_t bg_rmvl_thd;
+   bg_args bg_rmvl_args;
    barrier_t barrier;
    app_param* data;
    struct timeval start, end;
@@ -168,9 +171,10 @@ int main(int argc, char **argv) {
    sigset_t block_set;
    struct sl_node *temp;
    int unbalanced = DEFAULT_UNBALANCED;
+   int partition = DEFAULT_PARTITION;
    while(1) {
       i = 0;
-      c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:U:z:P:", long_options, &i);
+      c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:U:z:p", long_options, &i);
       if(c == -1) break;
       if(c == 0 && long_options[i].flag == 0) { c = long_options[i].val; }
       switch(c) {
@@ -203,8 +207,8 @@ int main(int argc, char **argv) {
                    "        Percentage of update transactions (default=" XSTR(DEFAULT_UPDATE) ")\n"
                    "  -z <int>\n"
                    "        Number of sockets to use (default = " XSTR(SOCKET_MAX) ")\n"
-                   "  -y <int>\n"
-                   "        Frequency of index layer updates"
+                   "  -p\n"
+                   "        Partition the range of values over the enclaves\n"
                    );
             exit(0);
          case 'A':
@@ -237,6 +241,9 @@ int main(int argc, char **argv) {
          case 'z':
             num_sockets = atoi(optarg);
             break;
+         case 'p':
+            partition = 1;
+            break;
          case '?':
             printf("Use -h or --help for help\n");
             exit(0);
@@ -250,7 +257,8 @@ int main(int argc, char **argv) {
    assert(range > 0 && range >= initial);
    assert(update >= 0 && update <= 100);
    assert(num_sockets >= SOCKET_MIN && num_sockets <= SOCKET_MAX);
-   // get hardware info
+
+   // Get hardware info
    hl_t* cur_hw = get_hardware_layout();
 
    int max_thread_num = cur_hw->max_cpu_num;
@@ -299,9 +307,10 @@ int main(int argc, char **argv) {
    zargs           =(tinit_args**)malloc(nb_threads*sizeof(tinit_args*));
    allocators = (numa_allocator**)malloc(nb_threads*sizeof(numa_allocator*));
    uint num_expected_nodes = (unsigned)((initial / nb_threads) * (1.0 + (update/100.0)));
-   uint buf_multiplier = 10;
-   uint data_buf_size = CACHE_LINE_SIZE * num_expected_nodes * buf_multiplier;
-   uint index_buf_size = data_buf_size;
+   uint dat_multiplier = 1000;
+   uint idx_multiplier = 3;
+   uint data_buf_size  = CACHE_LINE_SIZE * num_expected_nodes * dat_multiplier;
+   uint index_buf_size = CACHE_LINE_SIZE * num_expected_nodes * idx_multiplier;
    int sock_id = 0;
    int core_id = 0;
    for(int i = 0; i < nb_threads; ++i) {
@@ -344,7 +353,6 @@ int main(int argc, char **argv) {
    int d = initial / nb_threads;
    int m = initial % nb_threads;
    init_param* pop_params = (init_param*)malloc(sizeof(init_param));
-   pop_params->range = range;
    pop_params->seed = seed;
    pop_params->last = &last;
    int num_to_pop = 0;
@@ -353,7 +361,13 @@ int main(int argc, char **argv) {
       // NOTE: no need to check m==0 due to if statement construction
       if(j < m) num_to_pop = d + 1;
       else      num_to_pop = d;
-      //successfully_added +=
+      if(partition) {
+         pop_params->range  = range / nb_threads;
+         pop_params->offset = pop_params->range * j;
+      } else {
+         pop_params->range = range;
+         pop_params->offset = 0;
+      }
       enclaves[j]->populate_begin(pop_params, num_to_pop);
    }
    for(int k = 0; k < nb_threads; ++k) {
@@ -385,13 +399,19 @@ int main(int argc, char **argv) {
    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
    for (i = 0; i < nb_threads; i++) {
       data[i].first = last;
-      data[i].range = range;
       data[i].update = update;
       data[i].alternate = alternate;
       data[i].effective = effective;
       data[i].seed = rand();
       data[i].stop = &stop;
       data[i].barrier = &barrier;
+      if(partition) {
+         data[i].range  = range / nb_threads;
+         data[i].offset = pop_params->range * i;
+      } else {
+         data[i].range  = range;
+         data[i].offset = 0;
+      }
       enclaves[i]->start_application(&data[i]);
    }
    pthread_attr_destroy(&attr);
@@ -402,6 +422,15 @@ int main(int argc, char **argv) {
       signal(SIGTERM, catcher) == SIG_ERR) {
       perror("signal");
       exit(1);
+   }
+
+   // Start the background removal thread
+   if(update) {
+      bg_rmvl_args.done = false;
+      bg_rmvl_args.sentinel = sentinel_node;
+      bg_rmvl_args.sockets = num_sockets;
+      bg_rmvl_args.sleep = 15000;
+      pthread_create(&bg_rmvl_thd, NULL, removal_loop, (void*)bg_rmvl_args);
    }
 
    // Start threads
@@ -420,6 +449,7 @@ int main(int argc, char **argv) {
    AO_store_full(&stop, 1);
    gettimeofday(&end, NULL);
    printf("STOPPING...\n");
+   bg_rmvl_args.done = true;
 
    // Wait for thread completion
    for (i = 0; i < nb_threads; i++) {
@@ -496,9 +526,14 @@ int main(int argc, char **argv) {
 #endif
 
    printf("Cleaning up...\n");
+   if(update) {
+      pthread_join(bg_rmvl_thd, NULL);
+   }
    // Stop background threads
    for(int i = 0; i < nb_threads; ++i) {
       enclaves[i]->stop_helper();
+   }
+   for(int i = 0; i < nb_threads; ++i) {
       delete enclaves[i];
       delete allocators[i];
    }

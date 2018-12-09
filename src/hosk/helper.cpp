@@ -27,7 +27,6 @@
  * node_remove() - attempts to remove a node from the data layer
  * @prev - the thread-local node before the node to be deleted
  * @node - the node we are attempting to delete
- * @enclave_id -  enclave
  *
  * Note: This operation will only be carried out if @node
  * has been successfully marked for deletion (i.e. its value points
@@ -36,16 +35,15 @@
  * between @prev and @node, physically remove @node and the marker
  * by pointing @prev->next past these nodes.
  */
-void node_remove(node_t* prev, node_t* node, int enclave_id) {
+void node_remove(node_t* prev, node_t* node) {
    node_t *ptr, *insert;
    assert(prev);
    assert(node);
    if(node->val != node || node->key == 0) return;
    ptr = node->next;
    while(!ptr || ptr->key != 0) {
-      // use key = 0 as marker for node to delete
-      insert = node_new(0, LOGIC_RMVD, node, ptr, NULL, enclave_id);
-      insert->val = insert;
+      // create marker for node to delete
+      insert = marker_new(node, ptr);
       CAS(&node->next, ptr, insert);
 
       assert(node->next != node);
@@ -98,8 +96,8 @@ static void bg_trav_nodes(enclave* obj) {
          node = prev->local_next;
       } else {
          val_t nval = node->val;
-         if(nval != LOGIC_RMVD && nval != node) { ++obj->non_del; }
-         else if (node->level >= 1)             { ++obj->tall_del; }
+         if(nval != LOGIC_RMVD && nval != node) ++obj->non_del;
+         else if (node->level >= 1)             ++obj->tall_del;
          prev = node;
          node = node->local_next;
       }
@@ -134,7 +132,7 @@ static int bg_raise_nlevel(inode_t* inode, int enclave_id) {
             /* get the correct index above and behind */
             while (above && above->node->key < node->key) {
                above = above->right;
-               if (above != inode->right) { above_prev = above_prev->right; }
+               if (above != inode->right) above_prev = above_prev->right;
             }
 
             /* add a new index item above node */
@@ -186,7 +184,7 @@ static int bg_raise_ilevel(inode_t *iprev, inode_t *iprev_tall, int height, int 
          /* get the correct index above and behind */
          while (above && above->node->key < index->node->key) {
             above = above->right;
-            if (above != iprev_tall->right) { above_prev = above_prev->right; }
+            if (above != iprev_tall->right) above_prev = above_prev->right;
          }
 
          inew = inode_new(above_prev->right, index, index->node, enclave_id);
@@ -259,6 +257,7 @@ void* helper_loop(void* args) {
 
       // traverse the thread-local data layer and do physical deletes
       bg_trav_nodes(obj);
+      if(obj->finished) break;
 
       assert(sentinel->node->level < MAX_LEVELS);
 
@@ -313,6 +312,29 @@ void* helper_loop(void* args) {
             #endif
          }
       }
+   }
+   return NULL;
+}
+
+/* removal_loop() - handles data layer physical removals */
+void* removal_loop(void* args) {
+   bg_args* b = (bg_args*)args;
+   int cur_socket = 0;
+   while(!b->done) {
+      numa_run_on_node(cur_socket);
+      usleep(b->sleep);
+      node_t* prev = b->sentinel;
+      node_t* node = prev->next;
+      while(node) {
+         if(!node->level && node->val == LOGIC_RMVD) {
+            CAS(&node->val, LOGIC_RMVD, node);
+            if(node->val == node) node_remove(prev, node);
+         }
+         prev = node;
+         node = node->next;
+      }
+
+      cur_socket = (cur_socket + 1) % b->sockets;
    }
    return NULL;
 }

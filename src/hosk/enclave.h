@@ -24,18 +24,11 @@ struct bg_stats {
 };
 #endif
 
-/* op_t is the element which the enclave's circular array will contain.
-   a node value of NULL implies the operation was a remove */
-//struct op_t {
-//   sl_key_t   key;
-//   node_t*    node;
-//   op_t():key(0), node(NULL){}
-//};
-
 /* app_param defines the information passed to an application thread */
 struct app_param {
    unsigned int   first;
    long           range;
+   long           offset;
    int            update;
    int            alternate;
    int            effective;
@@ -49,6 +42,7 @@ struct app_param {
 struct init_param {
    int   num;
    long  range;
+   long  offset;
    uint  seed;
    uint* last;
 };
@@ -62,6 +56,14 @@ struct app_res {
    unsigned long removed;
    unsigned long contains;
    unsigned long found;
+};
+
+/* bg_args defines the information passed to the background removal thread */
+struct bg_args {
+   node_t*  sentinel;
+   uint     sleep;
+   uint     sockets;
+   volatile bool done;
 };
 
 class enclave {
@@ -127,8 +129,9 @@ public:
 void* initial_populate(void* args);
 void* application_loop(void* args);
 void* helper_loop(void* args);
+void* removal_loop(void* args);
 void  reset_node_levels(node_t* node);
-void  node_remove(node_t* prev, node_t* node, int enclave_id);
+void  node_remove(node_t* prev, node_t* node);
 int   tl_remove(node_t* prev, node_t* node, int enclave_id);
 void  barrier_init(barrier_t *b, int n);
 void  barrier_cross(barrier_t *b);

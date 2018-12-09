@@ -43,6 +43,7 @@ typedef VOLATILE struct sl_node  node_t;
 typedef VOLATILE struct sl_inode inode_t;
 
 node_t*  node_new(sl_key_t key, val_t val, node_t *prev, node_t *next, node_t* local_next, int enclave_id);
+node_t*  marker_new(node_t* prev, node_t* next);
 inode_t* inode_new(inode_t *right, inode_t *down, node_t* node, int enclave_id);
 
 void node_delete(node_t *node, int enclave_id);

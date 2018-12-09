@@ -46,6 +46,22 @@ node_t* node_new(sl_key_t key, val_t val, node_t *prev, node_t *next, node_t* lo
 }
 
 /**
+ * marker_new() - creates new marker node (signifies previous node is unlinked)
+ * @prev - the prev node pointer for the new node
+ * @next - the next node pointer for the new node
+ */
+node_t* marker_new(node_t* prev, node_t* next) {
+   node_t* node = (node_t*)malloc(DNODE_SZ);
+   node->key = 0;
+   node->val = node;
+   node->prev = prev;
+   node->next = next;
+   node->level = 0;
+   node->local_next = NULL;
+   return node;
+}
+
+/**
  * inode_new() - create a new index node
  * @right    - the right inode pointer for the new inode
  * @down  - the down inode pointer for the new inode

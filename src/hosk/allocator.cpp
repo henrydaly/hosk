@@ -111,7 +111,7 @@ void numa_allocator::nreset(void) {
 /* nrealloc() - allocates a new buffer */
 void numa_allocator::nrealloc(unsigned buf_id) {
    // increase size of our old_buffers to store the previously allocated memory
-   printf("Entering realloc!\n");
+   printf("Entering realloc(buf %d)!\n", buf_id);
    exit(-1);
    num_buffers[buf_id]++;
    if(other_buffers[buf_id] == NULL) {

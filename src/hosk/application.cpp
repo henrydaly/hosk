@@ -21,13 +21,19 @@
 enum sl_optype { CONTAINS, DELETE, INSERT };
 typedef enum sl_optype sl_optype_t;
 
+/* rand_key() - generate random key and add offset */
+inline long rand_key(unsigned int *seed, long r, long offset) {
+   long key = rand_range_re(seed, r);
+   return key + offset;
+}
+
 /* update_results() - update the results structure */
 int update_results(sl_optype_t otype, app_res* ares, int result, int key, int old_last, int alternate) {
    int last = old_last;
    switch (otype) {
       case CONTAINS:
          ares->contains++;
-         if(result == 1) { ares->found++; }
+         if(result == 1) ares->found++;
          break;
       case INSERT:
          ares->add++;
@@ -38,7 +44,7 @@ int update_results(sl_optype_t otype, app_res* ares, int result, int key, int ol
          break;
       case DELETE:
          ares->remove++;
-         if(alternate) { last = -1; }
+         if(alternate) last = -1;
          if(result == 1) {
             ares->removed++;
             last = -1;
@@ -73,7 +79,7 @@ inline int get_unext(app_param* d, app_res* r) {
 static int sl_finish_contains(sl_key_t key, node_t* node, val_t node_val) {
    int result = 0;
    assert(NULL != node);
-   if ((key == node->key) && (LOGIC_RMVD != node_val)) { result = 1; }
+   if ((key == node->key) && (LOGIC_RMVD != node_val)) result = 1;
    return result;
 }
 
@@ -106,7 +112,7 @@ static int sl_finish_delete(sl_key_t key, node_t *node, val_t node_val) {
                break;
             }
          }
-      } else { result = 0; } /* Already logically deleted */
+      } else result = 0; /* Already logically deleted */
    }
    return result;
 }
@@ -138,16 +144,16 @@ static int sl_finish_insert(sl_key_t key, val_t val, node_t *node, val_t node_va
    node_t *newNode;
    if(node->key == key) {
       if(LOGIC_RMVD == node_val) {
-         if(CAS(&node->val, node_val, val)) { result = 1; }
-      } else { result = 0; }
+         if(CAS(&node->val, node_val, val)) result = 1;
+      } else result = 0;
    } else {
       newNode = node_new(key, val, node, next, lnext, enclave_id);
       if(CAS(&node->next, next, newNode)) {
          assert(node->next != node);
-         if(next) { next->prev = newNode; } /* safe */
+         if(next) next->prev = newNode; /* safe */
          lprev->local_next = newNode;
          result = 1;
-      } else { node_delete(newNode, enclave_id); }
+      } else node_delete(newNode, enclave_id);
    }
    return result;
 }
@@ -254,7 +260,7 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype, sl_key_t ke
          next_val = next->val;
          if((node_t*)next_val == next) {
             // Node is marked for deletion
-            node_remove(node, next, enclave_id);
+            node_remove(node, next);
             continue;
          }
       }
@@ -302,7 +308,7 @@ void* application_loop(void* args) {
    enclave*    obj      = (enclave*)args;
    app_param*  params   = obj->aparams;
    app_res*    lresults = new app_res();
-   uint        key      = 0;
+   long        key      = 0;
    int unext = -1, last = -1, result = 0;
    sl_optype_t otype;
    VOLATILE AO_t *stop  = params->stop;
@@ -316,14 +322,14 @@ void* application_loop(void* args) {
       // Obtain the key for the next operation
       if(unext) { // update
          if (last < 0) { // add
-            key = rand_range_re(&params->seed, params->range);
+            key = rand_key(&params->seed, params->range, params->offset);
             otype = INSERT;
          } else { // remove
             otype = DELETE;
             if (params->alternate) { // alternate mode (default)
                key = last;
             } else {
-               key = rand_range_re(&params->seed, params->range);
+               key = rand_key(&params->seed, params->range, params->offset);
             }
          }
       } else { // read
@@ -334,19 +340,15 @@ void* application_loop(void* args) {
             		key = params->first;
             		last = key;
             	} else {
-            	   key = rand_range_re(&params->seed, params->range);
-                  last = -1;
+            	   key = rand_key(&params->seed, params->range, params->offset);
+            	   last = -1;
             	}
             } else { // update != 0
                if(last < 0) {
-                  key = rand_range_re(&params->seed, params->range);
-               } else {
-                  key = last;
-               }
+                  key = rand_key(&params->seed, params->range, params->offset);
+               } else key = last;
             }
-         } else {
-            key = rand_range_re(&params->seed, params->range);
-         }
+         } else key = rand_key(&params->seed, params->range, params->offset);
       }
       result = sl_do_operation(obj, key, otype);
       last   = update_results(otype, lresults, result, key, last, params->alternate);
@@ -369,7 +371,7 @@ void* initial_populate(void* args) {
 
    int i = 0;
    while(i < obj->num_populate) {
-      int key = rand_range_re(&params->seed, params->range);
+      long key = rand_key(&params->seed, params->range, params->offset);
       if(sl_do_operation(obj, key, INSERT)) {
          i++;
          *params->last = key;
