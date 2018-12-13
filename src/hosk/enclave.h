@@ -10,7 +10,7 @@
 #define APP_THD_ID 0
 #define HLP_THD_ID 1
 // Uncomment to collect stats on thread-local index and data layer traversal
-//#define COUNT_TRAVERSAL
+#define COUNT_TRAVERSAL
 
 // Uncomment to collect background stats - reduces performance
 //#define BG_STATS
