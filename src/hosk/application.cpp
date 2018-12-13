@@ -268,7 +268,7 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype, sl_key_t ke
       zone_access_check(this_socket, next, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
 #endif
 #ifdef COUNT_TRAVERSAL
-   obj->trav_dat++;
+      obj->trav_dat++;
 #endif
       if (NULL == next || next->key > key) {
          if (CONTAINS == optype) {
