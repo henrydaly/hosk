@@ -352,28 +352,31 @@ int main(int argc, char **argv) {
    uint last = 0;
    int d = initial / nb_threads;
    int m = initial % nb_threads;
-   init_param* pop_params = (init_param*)malloc(sizeof(init_param));
-   pop_params->seed = seed;
-   pop_params->last = &last;
+   init_param** pop_params = (init_param**)malloc(sizeof(init_param*));
    int num_to_pop = 0;
    for(int j = 0; j < nb_threads; ++j) {
+      pop_params[i] = (init_param*)malloc(sizeof(init_param));
+      pop_params[i]->seed = seed;
+      pop_params[i]->last = &last;
       // if size !divide across threads -> first m threads get + 1
       // NOTE: no need to check m==0 due to if statement construction
       if(j < m) num_to_pop = d + 1;
       else      num_to_pop = d;
       if(partition) {
-         pop_params->range  = range / nb_threads;
-         pop_params->offset = pop_params->range * j;
+         pop_params[i]->range  = range / nb_threads;
+         pop_params[i]->offset = pop_params[i]->range * j;
       } else {
-         pop_params->range = range;
-         pop_params->offset = 0;
+         pop_params[i]->range = range;
+         pop_params[i]->offset = 0;
       }
-      enclaves[j]->populate_begin(pop_params, num_to_pop);
+      enclaves[j]->populate_begin(pop_params[i], num_to_pop);
    }
    for(int k = 0; k < nb_threads; ++k) {
       last = enclaves[k]->populate_end();
       enclaves[k]->stop_helper();
+      free(pop_params[i]);
    }
+   free(pop_params);
    base_malloc = false;
    reset_node_levels(sentinel_node);
    for(int k = 0; k < nb_threads; ++k) {
@@ -407,7 +410,7 @@ int main(int argc, char **argv) {
       data[i].barrier = &barrier;
       if(partition) {
          data[i].range  = range / nb_threads;
-         data[i].offset = pop_params->range * i;
+         data[i].offset = data[i].range * i;
       } else {
          data[i].range  = range;
          data[i].offset = 0;
