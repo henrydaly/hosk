@@ -266,17 +266,18 @@ int main(int argc, char **argv) {
       printf("ERROR: application thread <= %d (max hw threads) / 2. Changing to %d.\n", max_thread_num, (max_thread_num / 2));
    }
 
-   printf("Set type     : skip list\n");
-   printf("Duration     : %d\n", duration);
-   printf("Initial size : %u\n", initial);
-   printf("Nb threads   : %d\n", nb_threads);
-   printf("Value range  : %ld\n", range);
-   printf("Seed         : %d\n", seed);
-   printf("Update rate  : %d\n", update);
-   printf("Alternate    : %d\n", alternate);
-   printf("Effective    : %d\n", effective);
-   printf("Type sizes   : int=%d/long=%d/ptr=%d/word=%d\n", (int)sizeof(int), (int)sizeof(long), (int)sizeof(void *), (int)sizeof(uintptr_t));
-   printf("Sockets      : %d\n", num_sockets);
+   printf("Set type       : skip list\n");
+   printf("Duration       : %d\n", duration);
+   printf("Initial size   : %u\n", initial);
+   printf("Nb threads     : %d\n", nb_threads);
+   printf("Value range    : %ld\n", range);
+   printf("Seed           : %d\n", seed);
+   printf("Update rate    : %d\n", update);
+   printf("Alternate      : %d\n", alternate);
+   printf("Effective      : %d\n", effective);
+   printf("Type sizes     : int=%d/long=%d/ptr=%d/word=%d\n", (int)sizeof(int), (int)sizeof(long), (int)sizeof(void *), (int)sizeof(uintptr_t));
+   printf("Sockets        : %d\n", num_sockets);
+   printf("Range Partition:%d\n", partition);
 
    timeout.tv_sec = duration / 1000;
    timeout.tv_nsec = (duration % 1000) * 1000000;
