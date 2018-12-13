@@ -430,7 +430,7 @@ int main(int argc, char **argv) {
       bg_rmvl_args.sentinel = sentinel_node;
       bg_rmvl_args.sockets = num_sockets;
       bg_rmvl_args.sleep = 15000;
-      pthread_create(&bg_rmvl_thd, NULL, removal_loop, (void*)bg_rmvl_args);
+      pthread_create(&bg_rmvl_thd, NULL, removal_loop, (void*)&bg_rmvl_args);
    }
 
    // Start threads
@@ -502,9 +502,9 @@ int main(int argc, char **argv) {
    tavg_idx_trav       /= nb_threads;
    tavg_dat_trav       /= nb_threads;
    tavg_dat_local_trav /= nb_threads;
-   printf("Average Index Hops: %d\n", tavg_idx_trav);
-   printf("Average Data  Hops: %d\n", tavg_dat_trav);
-   printf("Average Data  Hops: %d\n", tavg_dat_local_trav);
+   printf("Average Index    Hops: %d\n", tavg_idx_trav);
+   printf("Average Skiplink Hops: %d\n", tavg_dat_local_trav);
+   printf("Average Data     Hops: %d\n", tavg_dat_trav);
 #endif
 #ifdef ADDRESS_CHECKING
    int app_local = 0;

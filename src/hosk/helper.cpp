@@ -17,6 +17,7 @@
 
 #include <assert.h>
 #include <atomic_ops.h>
+#include <numa.h>
 #include <pthread.h>
 #include <unistd.h>
 #include "common.h"
@@ -87,6 +88,7 @@ static void bg_trav_nodes(enclave* obj) {
    node_t* node   = prev->local_next;
    int enclave_id = obj->get_enclave_num();
 #ifdef ADDRESS_CHECKING
+   int zone = obj->get_socket_num();
    zone_access_check(zone, prev, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
    zone_access_check(zone, node, &obj->bg_local_accesses, &obj->bg_foreign_accesses, obj->index_ignore);
 #endif
