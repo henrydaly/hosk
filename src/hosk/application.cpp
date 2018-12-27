@@ -20,6 +20,10 @@
 
 enum sl_optype { CONTAINS, DELETE, INSERT };
 typedef enum sl_optype sl_optype_t;
+#define TEST_DISABLE_CAS
+#ifdef TEST_DISABLE_CAS
+extern int partition;
+#endif
 
 /* rand_key() - generate random key and add offset */
 inline long rand_key(unsigned int *seed, long r, long offset) {
@@ -101,6 +105,12 @@ static int sl_finish_delete(sl_key_t key, node_t *node, val_t node_val) {
       result = 0; 
    } else {
       if (NULL != node_val) {
+#ifdef TEST_DISABLE_CAS
+         if(partition) {
+            node->val = LOGIC_RMVD;
+            result = 1;
+         } else {
+#endif
          /* loop until we or someone else deletes */
          while (1) {
             node_val = node->val;
@@ -112,6 +122,9 @@ static int sl_finish_delete(sl_key_t key, node_t *node, val_t node_val) {
                break;
             }
          }
+#ifdef TEST_DISABLE_CAS
+         }
+#endif
       } else result = 0; /* Already logically deleted */
    }
    return result;
@@ -144,16 +157,28 @@ static int sl_finish_insert(sl_key_t key, val_t val, node_t *node, val_t node_va
    node_t *newNode;
    if(node->key == key) {
       if(LOGIC_RMVD == node_val) {
+#ifdef TEST_DISABLE_CAS
+         node->val = val;
+         result = 1;
+#else
          if(CAS(&node->val, node_val, val)) result = 1;
+#endif
       } else result = 0;
    } else {
       newNode = node_new(key, val, node, next, lnext, enclave_id);
+#ifdef TEST_DISABLE_CAS
+      node->next = newNode;
+      next->prev = newNode;
+      lprev->local_next = newNode;
+      result = 1;
+#else
       if(CAS(&node->next, next, newNode)) {
          assert(node->next != node);
          if(next) next->prev = newNode; /* safe */
          lprev->local_next = newNode;
          result = 1;
       } else node_delete(newNode, enclave_id);
+#endif
    }
    return result;
 }
@@ -169,7 +194,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
    item = obj->get_sentinel();
    int this_socket = obj->get_socket_num();
 #ifdef ADDRESS_CHECKING
-   zone_access_check(this_socket, item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+   zone_access_check(this_socket, item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, obj->index_ignore);
 #endif
 #ifdef COUNT_TRAVERSAL
    obj->trav_idx++;
@@ -177,7 +202,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
    while (1) {
       next_item = item->right;
 #ifdef ADDRESS_CHECKING
-      zone_access_check(this_socket, next_item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+      zone_access_check(this_socket, next_item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, obj->index_ignore);
 #endif
 #ifdef COUNT_TRAVERSAL
       obj->trav_idx++;
@@ -185,7 +210,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
       if (NULL == next_item || next_item->key > key) {
          next_item = item->down;
 #ifdef ADDRESS_CHECKING
-         zone_access_check(this_socket, next_item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+         zone_access_check(this_socket, next_item, &obj->ap_local_accesses, &obj->ap_foreign_accesses, obj->index_ignore);
 #endif
 #ifdef COUNT_TRAVERSAL
          obj->trav_idx++;
@@ -193,7 +218,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
          if (NULL == next_item) {
             ret_node = item->node;
 #ifdef ADDRESS_CHECKING
-            zone_access_check(this_socket, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+            zone_access_check(this_socket, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, obj->index_ignore);
 #endif
 #ifdef COUNT_TRAVERSAL
             obj->trav_idx++;
@@ -203,7 +228,7 @@ node_t* sl_traverse_index(enclave* obj, sl_key_t key) {
       } else if (next_item->key == key) {
          ret_node = item->node;
 #ifdef ADDRESS_CHECKING
-         zone_access_check(this_socket, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+         zone_access_check(this_socket, ret_node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, obj->index_ignore);
 #endif
 #ifdef COUNT_TRAVERSAL
          obj->trav_idx++;
@@ -235,10 +260,15 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype, sl_key_t ke
    // Traverse the enclave-local data layer
    node_t* lprev = node;
    node_t* lnext = node->local_next;
+#ifdef ADDRESS_CHECKING
+   zone_access_check(this_socket, lnext, &obj->ap_local_accesses, &obj->ap_foreign_accesses, obj->index_ignore)
+#endif
    while(lnext && lnext->key <= key) {
       lprev = node = lnext;
       lnext = node->local_next;
-      // TODO: do we need to update thread-local links here?
+#ifdef ADDRESS_CHECKING
+      zone_access_check(this_socket, lnext, &obj->ap_local_accesses, &obj->ap_foreign_accesses, obj->index_ignore)
+#endif
 #ifdef COUNT_TRAVERSAL
       obj->trav_dat_local++;
 #endif
@@ -252,10 +282,13 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype, sl_key_t ke
          obj->trav_dat++;
 #endif
 #ifdef ADDRESS_CHECKING
-         zone_access_check(this_socket, node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
+         zone_access_check(this_socket, node, &obj->ap_local_accesses, &obj->ap_foreign_accesses, obj->index_ignore);
 #endif
       }
       next = node->next;
+#ifdef ADDRESS_CHECKING
+      zone_access_check(this_socket, next, &obj->ap_local_accesses, &obj->ap_foreign_accesses, obj->index_ignore);
+#endif
       if(NULL != next) {
          next_val = next->val;
          if((node_t*)next_val == next) {
@@ -264,9 +297,6 @@ int sl_traverse_data(enclave* obj, node_t* node, sl_optype_t optype, sl_key_t ke
             continue;
          }
       }
-#ifdef ADDRESS_CHECKING
-      zone_access_check(this_socket, next, &obj->ap_local_accesses, &obj->ap_foreign_accesses, false);
-#endif
 #ifdef COUNT_TRAVERSAL
       obj->trav_dat++;
 #endif

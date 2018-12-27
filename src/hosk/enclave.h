@@ -119,7 +119,7 @@ public:
    volatile long  ap_local_accesses;
    volatile long  ap_foreign_accesses;
 #endif
-   #ifdef BG_STATS
+#ifdef BG_STATS
    bg_stats_t shadow_stats;
    void bg_stats(void);
 #endif

@@ -71,6 +71,7 @@ tinit_args** zargs;
 extern numa_allocator** allocators;
 node_t* sentinel_node;
 bool base_malloc = true;
+int partition = DEFAULT_PARTITION;
 
 void barrier_init(barrier_t *b, int n) {
    pthread_cond_init(&b->complete, NULL);
@@ -171,7 +172,6 @@ int main(int argc, char **argv) {
    sigset_t block_set;
    struct sl_node *temp;
    int unbalanced = DEFAULT_UNBALANCED;
-   int partition = DEFAULT_PARTITION;
    while(1) {
       i = 0;
       c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:U:z:p", long_options, &i);
@@ -277,7 +277,7 @@ int main(int argc, char **argv) {
    printf("Effective      : %d\n", effective);
    printf("Type sizes     : int=%d/long=%d/ptr=%d/word=%d\n", (int)sizeof(int), (int)sizeof(long), (int)sizeof(void *), (int)sizeof(uintptr_t));
    printf("Sockets        : %d\n", num_sockets);
-   printf("Range Partition:%d\n", partition);
+   printf("Range Partition: %d\n", partition);
 
    timeout.tv_sec = duration / 1000;
    timeout.tv_nsec = (duration % 1000) * 1000000;

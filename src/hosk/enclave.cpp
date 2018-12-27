@@ -131,6 +131,9 @@ uint enclave::populate_end(void) {
 /* reset_index() - resets index layers */
 void enclave::reset_index_layer(void) {
    reset_index = true;
+#ifdef ADDRESS_CHECKING
+   index_ignore = false;
+#endif
 }
 
 #ifdef BG_STATS

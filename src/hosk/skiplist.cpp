@@ -122,27 +122,26 @@ int data_layer_size(node_t* head, int flag) {
 #ifdef ADDRESS_CHECKING
 /**
  * check_addr() - check specific address using get_mempolicy to see if it is on the supposed node
+ * @s - the supposed NUMA Zone for this address
  */
-int check_addr(int supposed_node, void* addr) {
+int check_addr(int s, void* addr) {
    if(!addr) return -1;
-
-   int actual_node = -1;
-   if(-1 == get_mempolicy(&actual_node, NULL, 0, (void*)addr, MPOL_F_NODE | MPOL_F_ADDR)) {
+   int a = -1; // a is the actual NUMA zone of this address
+   if(-1 == get_mempolicy(&a, NULL, 0, (void*)addr, MPOL_F_NODE | MPOL_F_ADDR)) {
       perror("get_mempolicy error");
       exit(-9);
    }
-   if(actual_node == supposed_node) return 0;
-   else                             return 1;
+   if(a == s) return 0;
+   else       return 1;
 }
 
 /**
  * zone_access_check() - checks address and updates local or foreign accesses accordingly
  */
 void zone_access_check(int node, void* addr, volatile long* local, volatile long* foreign, bool dont_count) {
-   int result;
+   if(dont_count) return;
    if(1 == (result = check_addr(node, addr))) {
       (*foreign)++;
-      if(dont_count){ (*foreign)--; }
    } else if(result == 0) {
       (*local)++;
    }
